@@ -116,7 +116,7 @@ jobs:
       # so the host must provide them for packaging but the smoke tests below
       # load the bundled copies (AppRun puts usr/lib first on LD_LIBRARY_PATH).
       - name: Package AppImage
-        run: packaging/build-appimage.sh
+        run: bash packaging/build-appimage.sh
 
       - name: Smoke-test AppImage with software Vulkan
         shell: bash
@@ -135,7 +135,7 @@ jobs:
           test -s "$GITHUB_WORKSPACE/build/appimage-smoke.png"
 
       - name: Package Flatpak
-        run: packaging/build-flatpak.sh
+        run: bash packaging/build-flatpak.sh
 
       - name: Lint Flatpak repository
         run: |
@@ -197,7 +197,7 @@ jobs:
       # Builds both slices on the Apple Silicon runner, lipo-joins them and
       # writes dist/Pinto-Slicer-VERSION-universal.dmg.
       - name: Package universal DMG
-        run: packaging/build-macos.sh
+        run: bash packaging/build-macos.sh
 
       - name: Smoke-test the packaged app
         shell: bash
