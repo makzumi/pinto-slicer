@@ -20,7 +20,15 @@ A Linux-first resin 3D printer slicer built with **Rust**, **egui**, and **wgpu*
 
 ## Download
 
-Tagged [GitHub Releases](https://github.com/makzumi/pinto-slicer/releases) provide **Linux x86_64** AppImage and Flatpak packages. Both require a working Vulkan driver. See the [changelog](CHANGELOG.md) for release notes.
+Tagged [GitHub Releases](https://github.com/makzumi/pinto-slicer/releases) provide builds for every desktop platform:
+
+| Platform | Assets |
+| --- | --- |
+| Linux x86_64 | `Pinto-Slicer-VERSION-x86_64.AppImage`, `Pinto-Slicer-VERSION-x86_64.flatpak` |
+| macOS 10.15+ (Apple Silicon and Intel) | `Pinto-Slicer-VERSION-universal.dmg` |
+| Windows 10/11 x64 | `Pinto-Slicer-VERSION-x64-portable.zip` |
+
+Every asset is listed in the release's `SHA256SUMS` file. All builds need a working Vulkan driver for the 3D viewport. See the [changelog](CHANGELOG.md) for release notes.
 
 ### AppImage
 
@@ -34,6 +42,8 @@ chmod +x Pinto-Slicer-*-x86_64.AppImage
 
 The AppImage is built on Ubuntu 22.04. On systems without FUSE, run it with `--appimage-extract-and-run`. Desktop AppImage integration tools can add it to your application menu.
 
+The keyboard libraries winit loads at startup (`libxkbcommon`, `libxkbcommon-x11`, `libxcb-xkb`) are bundled inside the AppImage, so minimal distributions that do not ship `libxkbcommon-x11` work without extra packages. X11, xcb, Wayland, and Vulkan drivers are taken from the host.
+
 ### Flatpak
 
 With the Flathub remote available for the Freedesktop runtime, install the downloaded bundle and run the app:
@@ -46,12 +56,25 @@ flatpak run io.github.makzumi.pinto-slicer
 
 The Flatpak targets Freedesktop 26.08. Missing runtime packages are downloaded from Flathub during installation.
 
+### macOS
+
+Open the DMG and drag **Pinto Slicer** to *Applications*. The disk image contains a universal binary, so the same download runs natively on Apple Silicon and Intel Macs.
+
+The build is ad-hoc signed but not notarized, so the first launch needs one of these:
+
+- Right-click (or Control-click) the app and choose *Open*, then confirm.
+- Or clear the quarantine flag once: `xattr -dr com.apple.quarantine "/Applications/Pinto Slicer.app"`.
+
+### Windows
+
+The portable ZIP needs no installer: extract it anywhere and run `pinto_slicer.exe`. The executable links the C runtime statically, so the Visual C++ redistributable is not required.
+
 ## Quick start
 
 ### Prerequisites
 
 - A recent [Rust toolchain with Cargo](https://rustup.rs/)
-- A Linux desktop with a working Vulkan graphics driver for the GUI
+- A desktop with a working Vulkan graphics driver for the GUI (Linux, macOS, or Windows)
 
 ### Run from source
 
@@ -183,7 +206,7 @@ These checks provide useful software validation, but they do **not** establish p
 
 ## Development
 
-See [RELEASING.md](RELEASING.md) for AppImage/Flatpak build instructions and the tagged GitHub release process.
+See [RELEASING.md](RELEASING.md) for AppImage/Flatpak/DMG/ZIP build instructions and the tagged GitHub release process.
 
 Run the standard checks before submitting changes:
 

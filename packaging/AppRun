@@ -12,6 +12,17 @@ while [ -L "$self" ]; do
 done
 here=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
 
-# Vulkan and display drivers intentionally remain on the host. Bundling a
-# second ICD or GL stack makes wgpu applications less portable, not more.
+# winit dlopen()s the XKB keyboard stack at runtime, so libxkbcommon-x11 is not
+# in the binary's DT_NEEDED list and stock systems may not have it installed.
+# The AppImage ships that stack in usr/lib; putting it first on LD_LIBRARY_PATH
+# makes dlopen() pick the bundled copies (and still fall back to the host when
+# an extraction left them out).
+if [ -d "$here/usr/lib" ]; then
+    LD_LIBRARY_PATH=$here/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    export LD_LIBRARY_PATH
+fi
+
+# Vulkan, GL, X11/xcb, and Wayland drivers intentionally remain on the host.
+# Bundling a second ICD or display stack makes wgpu applications less portable,
+# not more.
 exec "$here/usr/bin/pinto_slicer" "$@"

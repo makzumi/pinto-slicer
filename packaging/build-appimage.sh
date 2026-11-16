@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 # Build an x86_64 AppImage from an existing Linux release binary.
+#
+# winit loads the keyboard/XKB stack with dlopen() instead of DT_NEEDED, so the
+# release binary never lists libxkbcommon-x11 and no package manager pulls it
+# in. On systems without it winit panics at startup with
+# "Library libxkbcommon-x11.so could not be loaded.". The small, stable-ABI
+# pieces of that stack are bundled into usr/lib; the X11, xcb, Wayland and
+# Vulkan drivers stay on the host so the app follows the system.
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -74,6 +81,7 @@ appdir="$root/build/appimage/AppDir"
 rm -rf "$appdir"
 mkdir -p \
     "$appdir/usr/bin" \
+    "$appdir/usr/lib" \
     "$appdir/usr/share/applications" \
     "$appdir/usr/share/icons/hicolor/512x512/apps" \
     "$appdir/usr/share/metainfo" \
@@ -82,6 +90,49 @@ mkdir -p \
 
 install -m755 "$binary" "$appdir/usr/bin/pinto_slicer"
 strip --strip-unneeded "$appdir/usr/bin/pinto_slicer"
+
+# Libraries winit dlopen()s. They are copied under their plain soname so the
+# dynamic loader finds them through AppRun's LD_LIBRARY_PATH.
+bundled_libs=(
+    libxkbcommon.so.0
+    libxkbcommon-x11.so.0
+    libxcb-xkb.so.1
+)
+
+resolve_runtime_lib() {
+    local soname=$1 path
+    while IFS= read -r path; do
+        [[ -e $path ]] || continue
+        readelf -h "$path" 2>/dev/null | grep -q 'Machine:.*Advanced Micro Devices X86-64' || continue
+        readlink -f "$path"
+        return 0
+    done < <(ldconfig -p | awk -v soname="$soname" '$1 == soname { print $NF }')
+    return 1
+}
+
+for soname in "${bundled_libs[@]}"; do
+    source_path=$(resolve_runtime_lib "$soname") || {
+        echo "Missing $soname on the packaging host." >&2
+        echo "Install libxkbcommon0, libxkbcommon-x11-0, and libxcb-xkb1 first." >&2
+        exit 1
+    }
+    install -m755 "$source_path" "$appdir/usr/lib/$soname"
+done
+
+# The bundled libraries must not depend on anything else that is missing.
+missing_deps=$(LD_LIBRARY_PATH="$appdir/usr/lib" ldd "$appdir"/usr/lib/*.so.* | grep 'not found' || true)
+if [[ -n $missing_deps ]]; then
+    echo "Bundled libraries have unresolved dependencies:" >&2
+    echo "$missing_deps" >&2
+    exit 1
+fi
+
+# AppRun prepends usr/lib to LD_LIBRARY_PATH; without that the bundled copies
+# are never found and the startup panic comes back.
+if ! grep -q 'LD_LIBRARY_PATH=.*usr/lib' "$root/packaging/AppRun"; then
+    echo "packaging/AppRun does not put usr/lib on LD_LIBRARY_PATH." >&2
+    exit 1
+fi
 install -m755 "$root/packaging/AppRun" "$appdir/AppRun"
 install -m644 "$root/packaging/$app_id.desktop" "$appdir/$app_id.desktop"
 install -m644 "$root/packaging/$app_id.desktop" "$appdir/usr/share/applications/$app_id.desktop"
@@ -109,7 +160,14 @@ mkdir -p "$smoke_dir"
 (
     cd "$smoke_dir"
     "$output" --appimage-extract >/dev/null
+    for soname in "${bundled_libs[@]}"; do
+        [[ -f "squashfs-root/usr/lib/$soname" ]] || {
+            echo "The AppImage does not contain usr/lib/$soname." >&2
+            exit 1
+        }
+    done
     squashfs-root/AppRun --help | grep -q '^Pinto Slicer'
 )
 
+printf 'Bundled: %s\n' "${bundled_libs[*]}"
 printf 'Created %s\n' "$output"

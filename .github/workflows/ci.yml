@@ -50,8 +50,49 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Validate packaging metadata and scripts
+        shell: bash
         run: |
-          bash -n packaging/build-appimage.sh packaging/build-flatpak.sh packaging/flatpak/update-cargo-sources.sh
+          set -euo pipefail
+          bash -n packaging/build-appimage.sh packaging/build-macos.sh packaging/build-flatpak.sh packaging/flatpak/update-cargo-sources.sh
           sh -n packaging/AppRun packaging/install-user.sh
           desktop-file-validate packaging/io.github.makzumi.pinto-slicer.desktop
           appstreamcli validate --no-net packaging/io.github.makzumi.pinto-slicer.metainfo.xml
+          if command -v pwsh >/dev/null 2>&1; then
+              pwsh -NoProfile -Command '
+                $errors = $null
+                [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  "packaging/build-windows.ps1", [ref]$null, [ref]$errors)
+                if ($errors) { $errors | Out-String | Write-Error; exit 1 }
+              '
+          fi
+
+  # The release builds on macOS and Windows; catch platform-specific compile
+  # and test failures here instead of on a release tag.
+  cross-platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+
+      - name: Check all targets
+        run: cargo check --locked --all-targets
+
+      - name: Run tests
+        run: cargo test --locked

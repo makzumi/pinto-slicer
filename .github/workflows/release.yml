@@ -24,42 +24,28 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+
       - name: Install metadata tools
         run: |
           sudo apt-get update
           sudo apt-get install -y appstream desktop-file-utils
+
       - name: Validate metadata and packaging scripts
+        shell: bash
         run: |
-          bash -n packaging/build-appimage.sh packaging/build-flatpak.sh packaging/flatpak/update-cargo-sources.sh
+          set -euo pipefail
+          bash -n packaging/build-appimage.sh packaging/build-macos.sh packaging/build-flatpak.sh packaging/flatpak/update-cargo-sources.sh
           sh -n packaging/AppRun packaging/install-user.sh
           desktop-file-validate "packaging/${APP_ID}.desktop"
           appstreamcli validate --no-net "packaging/${APP_ID}.metainfo.xml"
-
-  build:
-    needs: metadata
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Check out source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-
-      - name: Install build and smoke-test tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            binutils ca-certificates curl desktop-file-utils flatpak \
-            libfuse2 libvulkan1 mesa-vulkan-drivers xauth xvfb
-          flatpak remote-add --user --if-not-exists flathub \
-            https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.flatpak.Builder
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
-          rustup default "$RUST_TOOLCHAIN"
-          rustc --version
-          cargo --version
+          if command -v pwsh >/dev/null 2>&1; then
+              pwsh -NoProfile -Command '
+                $errors = $null
+                [void][System.Management.Automation.Language.Parser]::ParseFile(
+                  "packaging/build-windows.ps1", [ref]$null, [ref]$errors)
+                if ($errors) { $errors | Out-String | Write-Error; exit 1 }
+              '
+          fi
 
       - name: Check release versions
         shell: bash
@@ -84,6 +70,37 @@ jobs:
               exit 1
           fi
 
+  linux:
+    needs: metadata
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install build and smoke-test tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils ca-certificates curl desktop-file-utils flatpak \
+            libfuse2 libvulkan1 mesa-vulkan-drivers xauth xvfb \
+            libxkbcommon0 libxkbcommon-x11-0 libxcb-xkb1 \
+            libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.flatpak.Builder
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+
       - name: Fetch locked dependencies
         run: cargo fetch --locked
       - name: Check formatting
@@ -95,6 +112,9 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
+      # The package ships libxkbcommon/libxkbcommon-x11/libxcb-xkb in usr/lib,
+      # so the host must provide them for packaging but the smoke tests below
+      # load the bundled copies (AppRun puts usr/lib first on LD_LIBRARY_PATH).
       - name: Package AppImage
         run: packaging/build-appimage.sh
 
@@ -150,18 +170,131 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  macos:
+    needs: metadata
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+          cargo --version
+
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Run tests
+        run: cargo test --locked
+
+      # Builds both slices on the Apple Silicon runner, lipo-joins them and
+      # writes dist/Pinto-Slicer-VERSION-universal.dmg.
+      - name: Package universal DMG
+        run: packaging/build-macos.sh
+
+      - name: Smoke-test the packaged app
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(printf '%s\n' dist/*-universal.dmg)
+          mount_point=$(mktemp -d)
+          hdiutil attach "$dmg" -mountpoint "$mount_point" -nobrowse -quiet
+          trap 'hdiutil detach "$mount_point" -quiet || true' EXIT
+          app="$mount_point/Pinto Slicer.app"
+          binary="$app/Contents/MacOS/pinto_slicer"
+          codesign --verify --strict "$app"
+          lipo -archs "$binary" | grep -qw arm64
+          lipo -archs "$binary" | grep -qw x86_64
+          plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist"
+          "$binary" --help | grep -q '^Pinto Slicer'
+          "$binary" --inspect samples/cube.stl >/dev/null
+          test -s "$app/Contents/Resources/pinto_slicer.icns"
+
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-universal
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    needs: metadata
+    runs-on: windows-2022
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install "$env:RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$env:RUST_TOOLCHAIN"
+          rustup target add x86_64-pc-windows-msvc
+          rustc --version
+          cargo --version
+
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Package portable ZIP
+        shell: pwsh
+        run: ./packaging/build-windows.ps1
+
+      - name: Smoke-test the packaged ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zip = Get-ChildItem dist/*-portable.zip
+          Expand-Archive -Path $zip.FullName -DestinationPath build/windows-smoke -Force
+          & build/windows-smoke/pinto_slicer.exe --help | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) { throw "The packaged binary failed its --help smoke test." }
+          & build/windows-smoke/pinto_slicer.exe --inspect samples/cube.stl
+          if ($LASTEXITCODE -ne 0) { throw "The packaged binary failed its --inspect smoke test." }
+          Get-Content dist/SHA256SUMS
+
+      - name: Upload Windows release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [linux, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - name: Download verified Linux artifacts
+      - name: Download verified artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: linux-x86_64
           path: dist
+
+      - name: Assemble release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          # Actions artifacts do not keep file modes; restore them for the
+          # AppImage and the DMG-side scripts.
+          chmod +x dist/*/*.AppImage 2>/dev/null || true
+          find dist -mindepth 2 -maxdepth 2 -type f ! -name 'SHA256SUMS*' -exec cp -t release {} +
+          cd release
+          sha256sum ./* | sed 's|  \./|  |' > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat SHA256SUMS
 
       - name: Publish GitHub Release
         shell: bash
@@ -171,7 +304,7 @@ jobs:
           set -euo pipefail
           tag=$GITHUB_REF_NAME
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber dist/*
+              gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber release/*
           else
               args=()
               case ${tag,,} in
@@ -183,5 +316,5 @@ jobs:
                 --title "Pinto Slicer ${tag#v}" \
                 --generate-notes \
                 "${args[@]}" \
-                dist/*
+                release/*
           fi
