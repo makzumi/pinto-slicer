@@ -1,0 +1,187 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUST_TOOLCHAIN: '1.100.0'
+  APP_ID: 'io.github.makzumi.pinto-slicer'
+
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install metadata tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y appstream desktop-file-utils
+      - name: Validate metadata and packaging scripts
+        run: |
+          bash -n packaging/build-appimage.sh packaging/build-flatpak.sh packaging/flatpak/update-cargo-sources.sh
+          sh -n packaging/AppRun packaging/install-user.sh
+          desktop-file-validate "packaging/${APP_ID}.desktop"
+          appstreamcli validate --no-net "packaging/${APP_ID}.metainfo.xml"
+
+  build:
+    needs: metadata
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install build and smoke-test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils ca-certificates curl desktop-file-utils flatpak \
+            libfuse2 libvulkan1 mesa-vulkan-drivers xauth xvfb
+          flatpak remote-add --user --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.flatpak.Builder
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt,clippy
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+
+      - name: Check release versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          import xml.etree.ElementTree as ET
+          cargo = open('Cargo.toml', encoding='utf-8').read()
+          version = re.search(r'^version = "([^"]+)"', cargo, re.M).group(1)
+          root = ET.parse(f'packaging/{os.environ["APP_ID"]}.metainfo.xml')
+          release = root.getroot().find('releases/release')
+          assert release is not None, 'Missing AppStream release entry'
+          assert release.attrib['version'] == version, 'Cargo and AppStream versions differ'
+          image = root.getroot().find('screenshots/screenshot/image')
+          assert image is not None and f'/v{version}/' in image.text, 'Screenshot URL must use the release tag'
+          print(f'Release version: {version}')
+          PY
+          if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF_NAME != "v$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)" ]]; then
+              echo "Tag $GITHUB_REF_NAME does not match Cargo.toml" >&2
+              exit 1
+          fi
+
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run tests
+        run: cargo test --locked
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package AppImage
+        run: packaging/build-appimage.sh
+
+      - name: Smoke-test AppImage with software Vulkan
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/appimage-gui
+          cd build/appimage-gui
+          appimage=$(printf '%s\n' "$GITHUB_WORKSPACE"/dist/*-x86_64.AppImage)
+          export LIBGL_ALWAYS_SOFTWARE=1
+          export WGPU_BACKEND=vulkan
+          export WINIT_UNIX_BACKEND=x11
+          export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          timeout 300s xvfb-run -a -s '-screen 0 1280x820x24' \
+            "$appimage" --appimage-extract-and-run --demo \
+            --screenshot "$GITHUB_WORKSPACE/build/appimage-smoke.png"
+          test -s "$GITHUB_WORKSPACE/build/appimage-smoke.png"
+
+      - name: Package Flatpak
+        run: packaging/build-flatpak.sh
+
+      - name: Lint Flatpak repository
+        run: |
+          flatpak run --command=flatpak-builder-lint --filesystem=host org.flatpak.Builder \
+            repo build/flatpak-repo
+
+      - name: Install and smoke-test Flatpak
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=$(printf '%s\n' dist/*-x86_64.flatpak)
+          flatpak install --user -y "$bundle"
+          flatpak run "$APP_ID" --help | grep -q '^Pinto Slicer'
+          timeout 300s xvfb-run -a -s '-screen 0 1280x820x24' \
+            flatpak run --env=LIBGL_ALWAYS_SOFTWARE=1 --env=WGPU_BACKEND=vulkan \
+            "$APP_ID" --demo --screenshot "$GITHUB_WORKSPACE/build/flatpak-smoke.png"
+          test -s "$GITHUB_WORKSPACE/build/flatpak-smoke.png"
+
+      - name: Generate and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./*.AppImage ./*.flatpak | sed 's|  \./|  |' > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Upload Linux release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-x86_64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified Linux artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: linux-x86_64
+          path: dist
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$GITHUB_REF_NAME
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber dist/*
+          else
+              args=()
+              case ${tag,,} in
+                  *alpha*|*beta*|*rc*) args+=(--prerelease) ;;
+              esac
+              gh release create "$tag" \
+                --repo "$GITHUB_REPOSITORY" \
+                --verify-tag \
+                --title "Pinto Slicer ${tag#v}" \
+                --generate-notes \
+                "${args[@]}" \
+                dist/*
+          fi

@@ -1,11 +1,11 @@
 //! Application identity and the embedded Pinto artwork.
 //!
 //! Windows and X11 can use the RGBA window icon directly. Wayland instead
-//! matches `APP_ID` to `packaging/pinto-slicer.desktop`, whose `Icon` entry
-//! resolves to the same installed artwork for the taskbar and alt-tab UI.
+//! matches `APP_ID` to the installed reverse-DNS desktop entry, whose `Icon`
+//! entry resolves to the same artwork for the taskbar and alt-tab UI.
 
 pub const APP_NAME: &str = "Pinto Slicer";
-pub const APP_ID: &str = "pinto-slicer";
+pub const APP_ID: &str = "io.github.makzumi.pinto-slicer";
 pub const HEADER_SIZE: f32 = 32.0;
 
 const ICON_PNG: &[u8] = include_bytes!("../assets/pinto-slicer.png");

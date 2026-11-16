@@ -1,5 +1,8 @@
-# Rust / Cargo build output
+# Rust / Cargo build output and generated release packages
 /target/
+/build/
+/dist/
+/.flatpak-builder/
 
 # Generated printer jobs and export metadata
 *.cxdlpv4
@@ -12,11 +15,12 @@ masks/
 /exports/
 /output/
 
-# Logs and temporary files
+# Logs, temporary files, and local agent session metadata
 *.log
 *.tmp
 *.temp
 *.bak
+/pi.txt
 
 # Editor and IDE settings
 .vscode/

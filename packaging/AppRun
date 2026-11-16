@@ -1,0 +1,17 @@
+#!/bin/sh
+# Launch the same binary from a mounted AppImage or an extracted AppDir.
+set -eu
+
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname -- "$self")/$link ;;
+    esac
+done
+here=$(CDPATH= cd -- "$(dirname -- "$self")" && pwd -P)
+
+# Vulkan and display drivers intentionally remain on the host. Bundling a
+# second ICD or GL stack makes wgpu applications less portable, not more.
+exec "$here/usr/bin/pinto_slicer" "$@"

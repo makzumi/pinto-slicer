@@ -1,0 +1,40 @@
+Pinto Slicer — Third-Party Notices
+=================================
+
+PrusaSlicer
+-----------
+
+The support-generation implementation in src/supports/ is a Rust port and
+adaptation of PrusaSlicer's MSLA support pipeline. This includes adaptations
+of its support-point generation, pinhead and pillar construction, routing,
+pillar links, and pad-generation algorithms.
+
+PrusaSlicer is developed by Prusa Research and the PrusaSlicer contributors
+and is distributed under the GNU Affero General Public License, version 3.
+Upstream copyrights remain with their respective holders.
+
+Upstream project: https://github.com/prusa3d/PrusaSlicer
+Upstream license: https://github.com/prusa3d/PrusaSlicer/blob/master/LICENSE
+
+The Pinto Slicer implementation was created in 2026 by translating and
+adapting these algorithms to Rust, integrating them with Pinto Slicer's data
+model and interface, and making application-specific changes. It is not the
+original upstream C++ implementation.
+
+UVtools
+-------
+
+Printer file-format behavior, binary structures, codecs, and machine data were
+cross-checked against UVtools and its machine registry.
+
+Project: https://github.com/sn4k3/UVtools
+
+msla_format
+-----------
+
+CTB and GOO encoding is provided by the msla_format Rust crate.
+
+Project: https://crates.io/crates/msla_format
+
+Other third-party libraries are managed through Cargo and retain their
+respective copyrights and licenses.

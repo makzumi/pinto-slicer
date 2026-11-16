@@ -1,0 +1,62 @@
+app-id: io.github.makzumi.pinto-slicer
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+default-branch: stable
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: pinto_slicer
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Models, projects, and printer jobs can live outside the home directory.
+  # File dialogs still use the desktop portal where available.
+  - --filesystem=host
+
+modules:
+  - name: pinto-slicer
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/pinto-slicer/cargo
+        CARGO_NET_OFFLINE: 'true'
+        CARGO_TERM_COLOR: never
+    license-files:
+      - LICENSE
+      - NOTICE
+    build-commands:
+      - cargo --offline fetch --locked
+      - cargo build --offline --locked --release
+      - install -Dm0755 target/release/pinto_slicer ${FLATPAK_DEST}/bin/pinto_slicer
+      - install -Dm0644 packaging/io.github.makzumi.pinto-slicer.desktop ${FLATPAK_DEST}/share/applications/io.github.makzumi.pinto-slicer.desktop
+      - install -Dm0644 assets/pinto-slicer.png ${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/io.github.makzumi.pinto-slicer.png
+      - install -Dm0644 packaging/io.github.makzumi.pinto-slicer.metainfo.xml ${FLATPAK_DEST}/share/metainfo/io.github.makzumi.pinto-slicer.metainfo.xml
+      - install -Dm0644 README.md -t ${FLATPAK_DEST}/share/doc/pinto-slicer/
+    sources:
+      # Explicit paths keep target/, build/, VCS metadata, and local screenshots
+      # out of the sandbox source tree. Replace these with one immutable git
+      # source (URL + tag + commit) when using a hosted build service.
+      - type: dir
+        path: ../../src
+        dest: src
+      - type: dir
+        path: ../../assets
+        dest: assets
+      - type: dir
+        path: ../../packaging
+        dest: packaging
+      - type: file
+        path: ../../Cargo.toml
+      - type: file
+        path: ../../Cargo.lock
+      - type: file
+        path: ../../LICENSE
+      - type: file
+        path: ../../NOTICE
+      - type: file
+        path: ../../README.md
+      - cargo-sources.json

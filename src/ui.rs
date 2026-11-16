@@ -4116,6 +4116,22 @@ impl App {
                     .italics()
                     .color(WARN),
                 );
+                ui.add_space(8.0);
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(
+                        "Pinto Slicer is free software under the GNU Affero General Public \
+                         License v3. It comes with ABSOLUTELY NO WARRANTY.\n\
+                         Support-generation code is adapted from PrusaSlicer; upstream \
+                         copyrights remain with their respective holders.",
+                    )
+                    .size(11.0)
+                    .color(MUTED),
+                );
+                ui.hyperlink_to(
+                    "Source code, license, and third-party notices",
+                    "https://github.com/makzumi/pinto-slicer",
+                );
             });
         self.show_help = open;
     }
