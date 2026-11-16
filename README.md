@@ -54,7 +54,7 @@ flatpak install --user ./Pinto-Slicer-*-x86_64.flatpak
 flatpak run io.github.makzumi.pinto-slicer
 ```
 
-The Flatpak targets Freedesktop 26.08. Missing runtime packages are downloaded from Flathub during installation.
+The Flatpak targets Freedesktop 25.08. Missing runtime packages are downloaded from Flathub during installation.
 
 ### macOS
 

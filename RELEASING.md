@@ -8,7 +8,7 @@ Pinto Slicer publishes packages for **Linux x86_64**, **macOS (universal)**, and
 - `Pinto-Slicer-VERSION-x64-portable.zip`
 - `SHA256SUMS` (one file covering every asset)
 
-The AppImage is built on Ubuntu 22.04 for a glibc 2.35 baseline. The Flatpak targets Freedesktop 26.08 and is compiled from source with offline Cargo dependencies. Both Linux packages need a working Vulkan driver. The DMG contains a lipo-joined Apple Silicon + Intel binary and is ad-hoc signed, not notarized. The Windows executable links the C runtime statically, so no redistributable is needed.
+The AppImage is built on Ubuntu 22.04 for a glibc 2.35 baseline. The Flatpak targets Freedesktop 25.08 and is compiled from source with offline Cargo dependencies. Both Linux packages need a working Vulkan driver. The DMG contains a lipo-joined Apple Silicon + Intel binary and is ad-hoc signed, not notarized. The Windows executable links the C runtime statically, so no redistributable is needed.
 
 ## Automated releases
 
@@ -82,11 +82,10 @@ The script copies `libxkbcommon.so.0`, `libxkbcommon-x11.so.0`, and `libxcb-xkb.
 
 ### Flatpak
 
-Install Flatpak and either your distribution's current `flatpak-builder` or the Flatpak-maintained builder:
+Install Flatpak and your distribution's `flatpak-builder` (1.4 or newer; the release workflow uses Ubuntu 24.04, which has 1.4.2):
 
 ```bash
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.flatpak.Builder
 ```
 
 Then build:
@@ -97,7 +96,9 @@ packaging/build-flatpak.sh
 
 The manifest stages only source files, compiles with `cargo --offline --locked`, and creates an installable bundle in `dist/`. Build state and generated packages stay under the ignored `build/` and `dist/` directories.
 
-To lint the resulting repository:
+The manifest pins the 25.08 runtime. Keep older `flatpak-builder` versions off this build: 1.2.x runs `appstream-compose` inside the SDK, which current freedesktop runtimes no longer ship, so the build fails at its last stage.
+
+To lint the resulting repository (this needs the Flatpak-maintained builder, installed separately with `flatpak install --user flathub org.flatpak.Builder`):
 
 ```bash
 flatpak run --command=flatpak-builder-lint --filesystem=host org.flatpak.Builder repo build/flatpak-repo
@@ -110,6 +111,8 @@ flatpak install --user ./dist/Pinto-Slicer-1.0.2-x86_64.flatpak
 flatpak run io.github.makzumi.pinto-slicer --help
 flatpak run io.github.makzumi.pinto-slicer --demo
 ```
+
+Run the bundle from a directory under `$HOME` with models kept there too; Flatpak gives the app a private `/tmp`, so files elsewhere are invisible to it.
 
 Also test model opening/saving through portals, exports to removable storage, and Wayland and X11 sessions. The manifest intentionally has no network permission. Host filesystem access is needed for arbitrary CLI paths and atomic export writes beside the destination.
 

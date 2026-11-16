@@ -1,6 +1,8 @@
 app-id: io.github.makzumi.pinto-slicer
+# 25.08 rather than 26.08: flatpak 1.12 (Ubuntu 22.04) cannot pull the 26.08
+# rust-stable SDK extension, and the older runtime is what our users have.
 runtime: org.freedesktop.Platform
-runtime-version: '26.08'
+runtime-version: '25.08'
 sdk: org.freedesktop.Sdk
 default-branch: stable
 sdk-extensions:

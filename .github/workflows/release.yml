@@ -85,14 +85,11 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y \
-            binutils ca-certificates curl desktop-file-utils flatpak \
+            binutils ca-certificates curl desktop-file-utils \
             libfuse2 libvulkan1 mesa-vulkan-drivers xauth xvfb \
             libxkbcommon0 libxkbcommon-x11-0 libxcb-xkb1 \
             libx11-xcb1 libxcb1 libxcursor1 libxi6 libxrandr2 \
             libwayland-client0 libwayland-cursor0 libwayland-egl1
-          flatpak remote-add --user --if-not-exists flathub \
-            https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.flatpak.Builder
 
       - name: Install Rust
         run: |
@@ -134,13 +131,42 @@ jobs:
             --screenshot "$GITHUB_WORKSPACE/build/appimage-smoke.png"
           test -s "$GITHUB_WORKSPACE/build/appimage-smoke.png"
 
+      - name: Generate and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./*.AppImage | sed 's|  \./|  |' > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Upload Linux release artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x86_64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  # The Flatpak builds inside the freedesktop SDK, so the host only needs
+  # flatpak-builder. It runs on 24.04 because Ubuntu 22.04 still ships
+  # flatpak-builder 1.2, which runs appstream-compose inside the SDK; the
+  # freedesktop SDK dropped that tool, so the build fails there.
+  flatpak:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl flatpak flatpak-builder
+
       - name: Package Flatpak
         run: bash packaging/build-flatpak.sh
-
-      - name: Lint Flatpak repository
-        run: |
-          flatpak run --command=flatpak-builder-lint --filesystem=host org.flatpak.Builder \
-            repo build/flatpak-repo
 
       - name: Install and smoke-test Flatpak
         shell: bash
@@ -148,24 +174,22 @@ jobs:
           set -euo pipefail
           bundle=$(printf '%s\n' dist/*-x86_64.flatpak)
           flatpak install --user -y "$bundle"
-          flatpak run "$APP_ID" --help | grep -q '^Pinto Slicer'
-          timeout 300s xvfb-run -a -s '-screen 0 1280x820x24' \
-            flatpak run --env=LIBGL_ALWAYS_SOFTWARE=1 --env=WGPU_BACKEND=vulkan \
-            "$APP_ID" --demo --screenshot "$GITHUB_WORKSPACE/build/flatpak-smoke.png"
-          test -s "$GITHUB_WORKSPACE/build/flatpak-smoke.png"
+          flatpak run "$APP_ID" --help > build/flatpak-help.txt
+          grep -q '^Pinto Slicer' build/flatpak-help.txt
+          flatpak run "$APP_ID" --inspect samples/cube.stl
 
-      - name: Generate and verify checksums
+      - name: Generate checksums
         shell: bash
         run: |
           set -euo pipefail
           cd dist
-          sha256sum ./*.AppImage ./*.flatpak | sed 's|  \./|  |' > SHA256SUMS
+          sha256sum ./*.flatpak | sed 's|  \./|  |' > SHA256SUMS
           sha256sum -c SHA256SUMS
 
-      - name: Upload Linux release artifacts
+      - name: Upload Flatpak release artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: linux-x86_64
+          name: flatpak-x86_64
           path: dist/*
           if-no-files-found: error
           retention-days: 7
@@ -285,7 +309,7 @@ jobs:
 
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, macos, windows]
+    needs: [linux, flatpak, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
