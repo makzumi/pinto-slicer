@@ -210,10 +210,14 @@ jobs:
           app="$mount_point/Pinto Slicer.app"
           binary="$app/Contents/MacOS/pinto_slicer"
           codesign --verify --strict "$app"
-          lipo -archs "$binary" | grep -qw arm64
-          lipo -archs "$binary" | grep -qw x86_64
+          archs=$(lipo -archs "$binary")
+          for arch in arm64 x86_64; do
+              # A here-string keeps pipefail from seeing a SIGPIPE'd producer.
+              grep -qw "$arch" <<<"$archs"
+          done
           plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist"
-          "$binary" --help | grep -q '^Pinto Slicer'
+          "$binary" --help > build/macos-help.txt
+          grep -q '^Pinto Slicer' build/macos-help.txt
           "$binary" --inspect samples/cube.stl >/dev/null
           test -s "$app/Contents/Resources/pinto_slicer.icns"
 
