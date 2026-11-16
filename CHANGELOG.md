@@ -6,16 +6,7 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [1.0.2] - 2026-11-16
 
-### Added
-
-- Universal macOS DMG (Apple Silicon and Intel) and Windows x64 portable ZIP release packages, built and smoke-tested by the release workflow.
-
-### Fixed
-
-- The AppImage now bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
-- The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
-
-## [0.1.0] - 2026-11-16
+First public release.
 
 ### Added
 
@@ -26,9 +17,14 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 - Ten GUI printer profiles and twelve native job formats.
 - Command-line model inspection, batch export, and application screenshots.
 - Linux user installation, AppImage packaging, and source-built Flatpak bundles.
+- Universal macOS DMG (Apple Silicon and Intel) and portable Windows x64 ZIP packages.
 - Tag-driven GitHub Actions releases with tests, package smoke checks, and SHA-256 checksums.
 - AGPL-3.0-only licensing and third-party attribution.
 
+### Fixed
+
+- The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
+- The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
+
 [Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v1.0.2...HEAD
 [1.0.2]: https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2
-[0.1.0]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.0
