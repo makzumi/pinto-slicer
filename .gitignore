@@ -1,0 +1,37 @@
+# Rust / Cargo build output
+/target/
+
+# Generated printer jobs and export metadata
+*.cxdlpv4
+job.json
+README.txt
+masks/
+
+# Local screenshots and export directories
+/screenshots/
+/exports/
+/output/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+
+# Editor and IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Local environment overrides
+.env
+.env.*
+!.env.example
+
+# Cargo.lock is intentionally kept: this is an application, not a library.
