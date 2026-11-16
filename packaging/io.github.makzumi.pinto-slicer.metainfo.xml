@@ -39,12 +39,23 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.0/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v1.0.2/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="1.0.2" date="2026-11-16">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2</url>
+      <description>
+        <p>Adds macOS and Windows packages and makes the AppImage start on systems that do not ship the X11 keyboard bindings.</p>
+        <ul>
+          <li>Universal macOS DMG for Apple Silicon and Intel</li>
+          <li>Portable Windows x64 ZIP that needs no C++ redistributable</li>
+          <li>AppImage bundles its keyboard libraries and no longer panics at startup</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-11-16">
       <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.0</url>
       <description>

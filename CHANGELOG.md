@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-16
+
 ### Added
 
 - Universal macOS DMG (Apple Silicon and Intel) and Windows x64 portable ZIP release packages, built and smoke-tested by the release workflow.
@@ -27,5 +29,6 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 - Tag-driven GitHub Actions releases with tests, package smoke checks, and SHA-256 checksums.
 - AGPL-3.0-only licensing and third-party attribution.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2
 [0.1.0]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.0
