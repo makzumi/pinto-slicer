@@ -58,8 +58,8 @@ jobs:
           cargo = open('Cargo.toml', encoding='utf-8').read()
           version = re.search(r'^version = "([^"]+)"', cargo, re.M).group(1)
           root = ET.parse(f'packaging/{os.environ["APP_ID"]}.metainfo.xml')
-          release = root.getroot().find('releases/release')
-          assert release is not None, 'Missing AppStream release entry'
+          release = root.getroot().find(f'releases/release[@version="{version}"]')
+          assert release is not None, f'Missing AppStream release entry for {version}'
           assert release.attrib['version'] == version, 'Cargo and AppStream versions differ'
           image = root.getroot().find('screenshots/screenshot/image')
           assert image is not None and f'/v{version}/' in image.text, 'Screenshot URL must use the release tag'

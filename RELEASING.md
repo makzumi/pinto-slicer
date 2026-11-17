@@ -52,8 +52,8 @@ The workflow uses `GITHUB_TOKEN`; no long-lived release token is required. Only 
 8. Create and push an annotated tag whose name is exactly `v` plus the Cargo version:
 
    ```bash
-   git tag -a v1.0.2 -m 'Pinto Slicer 1.0.2'
-   git push origin v1.0.2
+   git tag -a v0.1.3 -m 'Pinto Slicer 0.1.3'
+   git push origin v0.1.3
    ```
 
 Tags containing `alpha`, `beta`, or `rc` are published as GitHub pre-releases. Protect release tags in the repository settings to prevent accidental moves.
@@ -107,7 +107,7 @@ flatpak run --command=flatpak-builder-lint --filesystem=host org.flatpak.Builder
 Test the actual bundle before publishing:
 
 ```bash
-flatpak install --user ./dist/Pinto-Slicer-1.0.2-x86_64.flatpak
+flatpak install --user ./dist/Pinto-Slicer-0.1.3-x86_64.flatpak
 flatpak run io.github.makzumi.pinto-slicer --help
 flatpak run io.github.makzumi.pinto-slicer --demo
 ```

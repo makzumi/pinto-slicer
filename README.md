@@ -10,7 +10,7 @@ A Linux-first resin 3D printer slicer built with **Rust**, **egui**, and **wgpu*
 ## Features
 
 - **Interactive 3D preparation:** move, rotate, scale, mirror, duplicate, align, distribute, and automatically arrange models on the build plate.
-- **Configurable automatic supports:** Light/Medium/Heavy presets, adjustable tips, branches, trunks, pads, and clear stale-support indicators after model edits.
+- **Configurable automatic supports:** Light/Medium/Heavy presets, adjustable tips, branches, trunks, pads, per-model cleanup after edits, and clear stale-support indicators.
 - **Layer preview and playback:** inspect black-and-white exposure masks and step or play through the sliced job.
 - **Self-contained projects:** save meshes, transforms, printer settings, supports settings, selection, and export options in a versioned `.rslice` file.
 - **Native printer output:** ten built-in GUI profiles, twelve job formats, and export at each profile's exact native LCD resolution.
@@ -108,7 +108,7 @@ No root access is required. Make sure `~/.local/bin` is on your `PATH` if you wa
 ## The four-step workflow
 
 1. **Prepare** — Open one or more STL/OBJ files, choose a printer profile, and arrange the plate. Use the 3D handles or the **Transform** panel for precise placement. **Drop onto the plate** settles selected models, while **Align & space selected…** aligns or distributes multiple pieces.
-2. **Supports** — Choose a preset and configure the platform gap, tips, branches, trunks, and base. Click **Auto all** to generate supports for the current plate. Model edits mark the support run as out of date instead of silently rebuilding it.
+2. **Supports** — Choose a preset and configure the platform gap, tips, branches, trunks, and base. Click **Auto all** to generate supports for the current plate. Moving or turning a model deletes its supports and drops it onto the plate; deleting a model removes its supports too. Supports for untouched models are preserved, and **Auto all** rebuilds the current plate.
 3. **Slice** — Set layer height and exposure, then click **Slice now**. Inspect the exposure mask, drag the layer slider, or use playback to move through the job.
 4. **Export** — Choose a compatible format and destination. Export writes the printer job plus `job.json` and `README.txt`; optional PNG masks can also be written for each layer.
 

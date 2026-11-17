@@ -119,6 +119,10 @@ pub fn tip(t: &Tip, sides: usize) -> Mesh {
         ContactShape::Ball => contact_r,
     };
     append(&mut m, &frustum(t.pos, body_r, top, end_r, sides));
+    // The junction is the centre of the back sphere, not just the end of the
+    // cone. Unlike two flat caps, the sphere overlaps a post or branch leaving
+    // in any direction, including when the head is angled.
+    append(&mut m, &ball(low, lower_r, sides.max(8)));
     if t.contact_shape == ContactShape::Ball && t.contact_d > 0.01 {
         append(&mut m, &ball(top, contact_r, sides.max(8)));
     }

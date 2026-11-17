@@ -92,6 +92,7 @@ fn interconnect(
                 a: from,
                 b: to,
                 diameter: radius * 2.0,
+                model_id: from_trunk.model_id,
             });
             added = true;
         }
@@ -107,6 +108,7 @@ fn interconnect(
                     a: reverse_from,
                     b: reverse_to,
                     diameter: radius * 2.0,
+                    model_id: from_trunk.model_id,
                 });
                 added = true;
             }

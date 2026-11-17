@@ -49,12 +49,13 @@ pub fn plates_for(feet: &[Foot], cfg: &BaseConfig) -> Vec<Plate> {
     }
 
     let mut plates = Vec::new();
-    for subset in by_model.values() {
+    for (model_id, subset) in &by_model {
         for connected in connected_feet(subset, cfg.margin.max(0.0)) {
             for group in contour_pieces(connected, cfg.margin.max(0.0)) {
                 let poly = outline(&group, cfg.margin);
                 if poly.len() >= 3 {
                     plates.push(Plate {
+                        model_id: *model_id,
                         poly,
                         thickness,
                         chamfer,

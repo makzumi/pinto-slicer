@@ -33,8 +33,10 @@ pub fn make_tip(pos: Vec3, normal: Vec3, cfg: &SupportConfig, island: bool) -> T
     // the junction distance 2*front_radius + head_width + back_radius -
     // penetration, matching Prusa's Head::junction_point().
     let configured_length = cfg.tip.length + cfg.tip.upper_diameter + cfg.tip.lower_diameter * 0.5;
-    let envelope = (cfg.tip.lower_diameter * 0.5) * (1.0 - into.z * into.z).max(0.0).sqrt();
-    let floor_clearance = 0.05 + envelope;
+    // lower_end() is the centre of the meshed back sphere. Keep the whole
+    // sphere above the plate, not just the tilted cone's former flat end cap.
+    let back_radius = (cfg.tip.upper_diameter.max(cfg.tip.lower_diameter) * 0.5).max(0.05);
+    let floor_clearance = 0.05 + back_radius;
     let max_length = if into.z > 1e-4 {
         ((pos.z + into.z * cfg.tip.contact_depth - floor_clearance) / into.z).max(0.0)
     } else {

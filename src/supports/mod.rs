@@ -107,11 +107,15 @@ pub struct Brace {
     pub a: Vec3,
     pub b: Vec3,
     pub diameter: f32,
+    /// Braces only join trunks belonging to this one model.
+    pub model_id: usize,
 }
 
 /// A chamfered plate under a group of feet.
 #[derive(Clone, Debug)]
 pub struct Plate {
+    /// The model whose feet this base plate carries.
+    pub model_id: usize,
     /// Convex outline, counter-clockwise.
     pub poly: Vec<(f32, f32)>,
     pub thickness: f32,
@@ -223,6 +227,96 @@ impl SupportModel {
         *self = SupportModel::default();
     }
 
+    /// Remove or renumber whole models' support trees after plate edits. The
+    /// map is indexed by the old model id; `None` deletes that model's parts,
+    /// while `Some(new_id)` preserves them under their new plate index.
+    /// Returns true when support geometry was removed.
+    pub fn remap_models(&mut self, map: &[Option<usize>]) -> bool {
+        fn mapped(map: &[Option<usize>], old: usize) -> Option<usize> {
+            map.get(old).copied().flatten()
+        }
+        let before = self.tips.len()
+            + self.anchors.len()
+            + self.branches.len()
+            + self.trunks.len()
+            + self.feet.len()
+            + self.braces.len()
+            + self.plates.len();
+        // Branch ownership comes from its tip, so it stays consistent without
+        // duplicating that relationship in every Branch record.
+        let tip_models: HashMap<usize, usize> =
+            self.tips.iter().map(|tip| (tip.id, tip.model_id)).collect();
+        self.tips.retain_mut(|tip| {
+            if let Some(new) = mapped(map, tip.model_id) {
+                tip.model_id = new;
+                true
+            } else {
+                false
+            }
+        });
+        self.anchors.retain_mut(|anchor| {
+            if let Some(new) = mapped(map, anchor.model_id) {
+                anchor.model_id = new;
+                true
+            } else {
+                false
+            }
+        });
+        self.branches.retain(|branch| {
+            tip_models
+                .get(&branch.tip_id)
+                .is_some_and(|old| mapped(map, *old).is_some())
+        });
+        self.trunks.retain_mut(|trunk| {
+            if let Some(new) = mapped(map, trunk.model_id) {
+                trunk.model_id = new;
+                true
+            } else {
+                false
+            }
+        });
+        self.feet.retain_mut(|foot| {
+            if let Some(new) = mapped(map, foot.model_id) {
+                foot.model_id = new;
+                true
+            } else {
+                false
+            }
+        });
+        self.braces.retain_mut(|brace| {
+            if let Some(new) = mapped(map, brace.model_id) {
+                brace.model_id = new;
+                true
+            } else {
+                false
+            }
+        });
+        self.plates.retain_mut(|plate| {
+            if let Some(new) = mapped(map, plate.model_id) {
+                plate.model_id = new;
+                true
+            } else {
+                false
+            }
+        });
+        let after = self.tips.len()
+            + self.anchors.len()
+            + self.branches.len()
+            + self.trunks.len()
+            + self.feet.len()
+            + self.braces.len()
+            + self.plates.len();
+        let removed = before != after;
+        if removed {
+            // The red overhang view and island markers are combined geometry,
+            // not split by model. Discard them rather than showing old shapes.
+            self.debug_mesh = Mesh::default();
+            self.debug_islands.clear();
+        }
+        self.refresh_stats();
+        removed
+    }
+
     pub fn refresh_stats(&mut self) {
         self.stats.tips = self.tips.len();
         self.stats.trunks = self.trunks.len();
@@ -230,6 +324,15 @@ impl SupportModel {
         self.stats.braces = self.braces.len();
         self.stats.feet = self.feet.len();
         self.stats.plates = self.plates.len();
+        let mut min = f32::MAX;
+        let mut max = 0.0f32;
+        for trunk in &self.trunks {
+            let len = (trunk.top - trunk.bottom).length();
+            min = min.min(len);
+            max = max.max(len);
+        }
+        self.stats.trunk_min = if self.trunks.is_empty() { 0.0 } else { min };
+        self.stats.trunk_max = max;
     }
 
     /// The honest report the person asked for.
@@ -376,7 +479,7 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, cancel: &AtomicBool) -> Su
         min = min.min(len);
         max = max.max(len);
     }
-    model.stats.trunk_min = if min.is_finite() { min } else { 0.0 };
+    model.stats.trunk_min = if model.trunks.is_empty() { 0.0 } else { min };
     model.stats.trunk_max = max;
     if std::env::var_os("SUP_DEBUG").is_some() {
         let t_all = started.elapsed();

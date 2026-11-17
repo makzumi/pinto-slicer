@@ -601,6 +601,7 @@ fn generation_is_deterministic() {
 #[test]
 fn a_plate_stays_local_when_the_model_is_moved() {
     let p = Plate {
+        model_id: 0,
         poly: vec![(98.0, 48.0), (122.0, 48.0), (122.0, 72.0), (98.0, 72.0)],
         thickness: 0.8,
         chamfer: 0.2,
@@ -613,6 +614,36 @@ fn a_plate_stays_local_when_the_model_is_moved() {
             .all(|v| v.x >= 97.9 && v.x <= 122.1 && v.y >= 47.9 && v.y <= 72.1),
         "plate cap leaked back to world origin"
     );
+}
+
+#[test]
+fn tip_and_post_have_volumetric_overlap_at_their_junction() {
+    let cfg = SupportConfig::default();
+    for normal in [Vec3::new(0.0, 0.0, -1.0), Vec3::new(1.0, 0.0, -1.0)] {
+        let tip = tips::make_tip(Vec3::new(0.0, 0.0, 6.0), normal, &cfg, false);
+        let joint = tip.lower_end();
+        let radius = tip.lower_d * 0.5;
+        let down = Vec3::new(0.0, 0.0, -1.0);
+        let probe = joint + down * (0.25 * radius);
+        let tip_tree = bvh::Bvh::from_meshes(&[meshgen::tip(&tip, 12)]);
+        let post = meshgen::frustum(joint, radius, joint + down * (4.0 * radius), radius, 12);
+        let post_tree = bvh::Bvh::from_meshes(&[post]);
+        assert!(post_tree.inside(probe), "the probe must be inside the post");
+        assert!(
+            tip_tree.inside(probe),
+            "tip and post have no common interior below {joint:?}"
+        );
+    }
+}
+
+#[test]
+fn tip_back_spheres_stay_above_the_platform() {
+    let cfg = SupportConfig::default();
+    for normal in [Vec3::new(0.0, 0.0, -1.0), Vec3::new(1.0, 0.0, -1.0)] {
+        let tip = tips::make_tip(Vec3::new(0.0, 0.0, 0.5), normal, &cfg, false);
+        let (min, _) = meshgen::tip(&tip, 12).bounds();
+        assert!(min.z >= -1e-4, "back sphere crossed the plate at {}", min.z);
+    }
 }
 
 #[test]
@@ -945,6 +976,7 @@ fn support_bases_group_nearby_feet_and_leave_distant_feet_separate() {
 #[test]
 fn plate_caps_have_consistent_outward_winding() {
     let plate = Plate {
+        model_id: 0,
         poly: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 8.0), (0.0, 8.0)],
         thickness: 0.8,
         chamfer: 0.2,

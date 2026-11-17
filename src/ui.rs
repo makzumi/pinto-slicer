@@ -468,6 +468,8 @@ pub struct App {
     layer_tex_key: Option<(u64, usize, usize)>,
     /// Playback of the layer picture, in the slice step.
     playback: Playback,
+    /// Whether editing one scale axis applies the same value to all three.
+    uniform_scale: bool,
     /// Whether a turn dragged with a ring lands on whole steps, and how big.
     snap: bool,
     snap_deg: f32,
@@ -566,6 +568,7 @@ impl App {
             layer_tex: None,
             layer_tex_key: None,
             playback: Playback::default(),
+            uniform_scale: true,
             snap: true,
             snap_deg: 5.0,
             show_help: false,
@@ -832,6 +835,14 @@ impl App {
         // A snap makes the ring land on round numbers while it is dragged;
         // typed numbers are exact and never rounded.
         let snap = (self.snap, self.snap_deg.max(0.1));
+        let placement_edit = match change {
+            gizmo::Change::Move(d) => d.length() > 1e-6,
+            gizmo::Change::Turn(deg) => snap_angle(deg, snap.0, snap.1).abs() > 1e-6,
+            gizmo::Change::Size(_) => false,
+        };
+        let shape_edit =
+            matches!(change, gizmo::Change::Size(factor) if (factor - 1.0).abs() > 1e-6);
+        let edited: Vec<usize> = grab.base.iter().map(|(idx, _)| *idx).collect();
         for &(idx, base) in &grab.base {
             let Some(entry) = self.models.get_mut(idx) else {
                 continue;
@@ -868,9 +879,18 @@ impl App {
                 }
             }
             entry.transform = t;
+            if placement_edit {
+                let (min, _) = entry.bounds();
+                entry.transform.pos.z -= min.z;
+            }
         }
         // the picture has to follow the hand, not wait for the support rebuild
         self.refresh_world();
+        if placement_edit {
+            self.remove_supports_for(&edited);
+        } else if shape_edit {
+            self.cancel_support_run();
+        }
     }
 
     /// Add the same rotation to every picked piece, holding each piece's own
@@ -948,8 +968,7 @@ impl App {
         let first = self.models.len();
         self.models.extend(copies);
         self.selection.only(first..first + count);
-        self.refresh_world();
-        self.touched();
+        self.finish_model_edit(&(first..first + count).collect::<Vec<_>>(), true);
         self.status = format!("Copied {count} piece(s).");
     }
 
@@ -961,15 +980,14 @@ impl App {
         if picked.is_empty() {
             return;
         }
-        for idx in picked {
+        for idx in picked.iter().copied() {
             let Some(entry) = self.models.get_mut(idx) else {
                 continue;
             };
             let centre = layout::bounds_centre(entry.mesh.bounds());
             entry.transform.mirror_about(axis, centre);
         }
-        self.refresh_world();
-        self.touched();
+        self.finish_model_edit(&picked, true);
         self.status = format!("Mirrored across {}.", ["X", "Y", "Z"][axis]);
     }
 
@@ -992,6 +1010,7 @@ impl App {
         self.models = kept;
         self.selection.remap(&map);
         self.refresh_world();
+        self.remap_supports(&map);
         self.touched();
         self.status = format!("Removed {} piece(s).", doomed.len());
     }
@@ -1058,6 +1077,19 @@ impl App {
         let _ = self.support_job.take();
         self.pending = None;
 
+        // History shares each model's mesh Arc. Use that identity to carry
+        // surviving support ownership across deletion undo/redo index changes.
+        let support_map: Vec<Option<usize>> = self
+            .models
+            .iter()
+            .map(|current| {
+                saved
+                    .models
+                    .iter()
+                    .position(|candidate| Arc::ptr_eq(&current.mesh, &candidate.mesh))
+            })
+            .collect();
+
         self.printers = saved.printers;
         self.printer_idx = saved.printer_idx.min(self.printers.len().saturating_sub(1));
         self.settings = saved.settings;
@@ -1094,6 +1126,9 @@ impl App {
                 "Supports are rebuilt from the saved settings with Auto all.".into();
         }
         self.refresh_world();
+        if !opening {
+            self.remap_supports(&support_map);
+        }
         self.revision = self.revision.wrapping_add(1);
         self.change_serial = self.change_serial.wrapping_add(1);
         self.slice_now();
@@ -1367,12 +1402,57 @@ impl App {
 
     /// Throw the grown supports away and slice the bare plate.
     fn clear_supports(&mut self) {
+        let _ = self.support_job.take();
+        self.pending = None;
         self.support.clear();
         self.support_mesh = Mesh::default();
         self.support_note = "Supports deleted.".into();
         // Empty supports fit every plate, so there is nothing to mark stale.
         self.supports_for = None;
         self.slice_now();
+    }
+
+    /// Apply a model-index map to the derived support trees. An in-flight run
+    /// cannot be edited piecemeal, so cancel it instead of letting its stale
+    /// result reappear after the edit.
+    fn cancel_support_run(&mut self) -> bool {
+        let was_running = self.support_job.take().is_some();
+        self.pending = None;
+        if was_running {
+            self.support.clear();
+            self.support_mesh = Mesh::default();
+            self.supports_for = None;
+            self.support_note = "Support generation cancelled after the model edit.".into();
+            self.slice_now();
+        }
+        was_running
+    }
+
+    fn remap_supports(&mut self, map: &[Option<usize>]) {
+        if self.cancel_support_run() {
+            return;
+        }
+        if self.support.remap_models(map) {
+            self.support_mesh = self.support.mesh(12);
+            if self.support.is_empty() {
+                self.supports_for = None;
+            }
+            self.support_note = format!(
+                "Supports for edited models deleted; run Auto all to rebuild.\n{}",
+                self.support.report()
+            );
+            self.slice_now();
+        }
+    }
+
+    fn remove_supports_for(&mut self, which: &[usize]) {
+        let mut map: Vec<Option<usize>> = (0..self.models.len()).map(Some).collect();
+        for &idx in which {
+            if let Some(entry) = map.get_mut(idx) {
+                *entry = None;
+            }
+        }
+        self.remap_supports(&map);
     }
 
     /// Slice the models together with the supports. They are separate meshes,
@@ -1524,6 +1604,7 @@ impl App {
         let build = self.printers[self.printer_idx].build;
         let slots = layout::arrange(&bounds, build, 6.0);
         let mut moved = false;
+        let mut edited = Vec::new();
         for slot in slots {
             if let Some(m) = self.models.get_mut(slot.index) {
                 // the slot puts the piece on the plate; the gap is the support
@@ -1531,12 +1612,12 @@ impl App {
                 if slot.delta.length() > 1e-6 {
                     m.transform.pos = m.transform.pos + slot.delta;
                     moved = true;
+                    edited.push(slot.index);
                 }
             }
         }
         if moved {
-            self.refresh_world();
-            self.touched();
+            self.finish_model_edit(&edited, true);
         }
         if announce {
             self.status = if moved {
@@ -1560,8 +1641,7 @@ impl App {
                 return;
             }
             m.transform.pos = m.transform.pos + delta;
-            self.refresh_world();
-            self.touched();
+            self.finish_model_edit(&[idx], true);
         }
     }
 
@@ -1570,13 +1650,17 @@ impl App {
             self.status = "The selected pieces are already in that arrangement.".into();
             return;
         }
+        let mut edited = Vec::new();
         for (&idx, &delta) in picked.iter().zip(deltas) {
+            if delta.length() < 1e-6 {
+                continue;
+            }
             if let Some(model) = self.models.get_mut(idx) {
                 model.transform.pos = model.transform.pos + delta;
+                edited.push(idx);
             }
         }
-        self.refresh_world();
-        self.touched();
+        self.finish_model_edit(&edited, true);
         self.status = status;
     }
 
@@ -1658,8 +1742,7 @@ impl App {
     }
 
     /// Lower these pieces until each one's lowest point sits on the plate.
-    fn drop_pieces(&mut self, which: &[usize]) {
-        let mut moved = false;
+    fn lower_models_to_plate(&mut self, which: &[usize]) {
         for &idx in which {
             let Some(m) = self.models.get_mut(idx) else {
                 continue;
@@ -1667,13 +1750,42 @@ impl App {
             let (min, _) = m.bounds();
             if min.z.abs() > 1e-4 {
                 m.transform.pos.z -= min.z;
-                moved = true;
             }
         }
-        if moved {
-            self.refresh_world();
-            self.touched();
+    }
+
+    /// Finish a model edit in one place: invalidate only the edited pieces'
+    /// supports, optionally put those pieces down, then update the picture.
+    fn finish_model_edit(&mut self, which: &[usize], drop: bool) {
+        if drop {
+            self.lower_models_to_plate(which);
         }
+        self.refresh_world();
+        self.remove_supports_for(which);
+        self.touched();
+    }
+
+    fn drop_pieces(&mut self, which: &[usize]) {
+        let edited: Vec<usize> = which
+            .iter()
+            .copied()
+            .filter(|&idx| {
+                self.models
+                    .get(idx)
+                    .is_some_and(|model| model.bounds().0.z.abs() > 1e-4)
+            })
+            .collect();
+        if !edited.is_empty() {
+            self.finish_model_edit(&edited, true);
+        }
+    }
+
+    /// Shape-only edits keep old supports visible as stale, but must not let
+    /// an in-flight run install geometry made from the previous shape.
+    fn finish_shape_edit(&mut self) {
+        self.refresh_world();
+        self.cancel_support_run();
+        self.touched();
     }
 
     fn drop_to_plate(&mut self) {
@@ -2634,10 +2746,16 @@ impl App {
                 self.turn_selected_by(delta);
             }
             if changed {
-                // the view has to show the new placement right away, not after
-                // the supports have been rebuilt
-                self.refresh_world();
-                self.touched();
+                if matches!(self.tool, Tool::Move | Tool::Turn) {
+                    let edited = if self.tool == Tool::Turn {
+                        self.selection.pieces().to_vec()
+                    } else {
+                        vec![idx]
+                    };
+                    self.finish_model_edit(&edited, true);
+                } else {
+                    self.finish_shape_edit();
+                }
             }
             if drop {
                 self.drop_to_plate();
@@ -3135,8 +3253,8 @@ impl App {
             );
             ui.label(
                 egui::RichText::new(
-                    "Supports are grown by one run of the generator: press Auto all. Moving a \
-                     piece leaves them where they were until you run it again.",
+                    "Auto all rebuilds supports. Moving or turning a piece deletes its supports \
+                     and drops it onto the plate; deleting a piece deletes its supports too.",
                 )
                 .size(10.5)
                 .color(MUTED),
@@ -3825,7 +3943,9 @@ impl App {
         };
         let mut open = self.show_values;
         let mut changed = false;
+        let mut placement_changed = false;
         let (mut snap, mut snap_deg) = (self.snap, self.snap_deg);
+        let mut uniform_scale = self.uniform_scale;
         egui::Window::new("Transform")
             .open(&mut open)
             .collapsible(true)
@@ -3845,7 +3965,7 @@ impl App {
                 let t = &mut self.models[idx].transform;
 
                 ui.add_space(4.0);
-                changed |= values_row(
+                placement_changed |= values_row(
                     ui,
                     "MOVE",
                     [&mut t.pos.x, &mut t.pos.y, &mut t.pos.z],
@@ -3853,7 +3973,7 @@ impl App {
                     " mm",
                 );
                 ui.add_space(3.0);
-                changed |= values_row(
+                placement_changed |= values_row(
                     ui,
                     "TURN",
                     [&mut t.rot_deg.x, &mut t.rot_deg.y, &mut t.rot_deg.z],
@@ -3877,15 +3997,17 @@ impl App {
                     }
                 });
                 ui.add_space(3.0);
+                let before = t.scale;
                 let (mut sx, mut sy, mut sz) = (t.scale.x, t.scale.y, t.scale.z);
                 if values_row(ui, "SIZE", [&mut sx, &mut sy, &mut sz], 0.01, "×") {
-                    t.scale = Vec3::new(
-                        sx.clamp(0.05, 5.0),
-                        sy.clamp(0.05, 5.0),
-                        sz.clamp(0.05, 5.0),
-                    );
+                    t.scale = edited_scale(before, Vec3::new(sx, sy, sz), uniform_scale);
                     changed = true;
                 }
+                ui.checkbox(
+                    &mut uniform_scale,
+                    egui::RichText::new("Uniform scale").size(11.5),
+                )
+                .on_hover_text("Changing X, Y or Z applies the same value to all three axes");
 
                 let (min, max) = self.models[idx].bounds();
                 ui.add_space(5.0);
@@ -3915,15 +4037,17 @@ impl App {
                 }
             });
         self.show_values = open;
+        self.uniform_scale = uniform_scale;
         let snap_changed = self.snap != snap || (self.snap_deg - snap_deg).abs() > 1e-6;
         self.snap = snap;
         self.snap_deg = snap_deg;
         if snap_changed {
             self.record_change();
         }
-        if changed {
-            self.refresh_world();
-            self.touched();
+        if placement_changed {
+            self.finish_model_edit(&[idx], true);
+        } else if changed {
+            self.finish_shape_edit();
         }
     }
 
@@ -4079,9 +4203,9 @@ impl App {
                          1 Prepare — open a model, arrange the pieces, drop them onto the plate \
                          with the button at the bottom of the layout card.\n\
                          2 Supports — choose a preset and the tip, pillar and base sizes, then \
-                         press Auto all: that one run is the only thing that grows supports, so \
-                         moving a piece afterwards leaves them where they are until you run it \
-                         again.\n\
+                         press Auto all to grow them. Moving or turning a piece deletes its \
+                         supports and drops it onto the plate; deleting a piece removes its \
+                         supports too. Auto all rebuilds supports for the current plate.\n\
                          3 Slice — layer height and exposure, then Slice now. The picture beside \
                          the plate is what the screen shows; the bar underneath plays through \
                          the layers.\n\
@@ -4164,6 +4288,29 @@ impl eframe::App for App {
 }
 
 // ------------------------------------------------------------------ widgets
+
+/// Finish a numeric scale edit. In uniform mode the axis that actually changed
+/// supplies the value for all three axes; the other fields keep their old values
+/// until then, so enabling the option does not itself reshape the model.
+fn edited_scale(before: Vec3, edited: Vec3, uniform: bool) -> Vec3 {
+    if uniform {
+        let value = if edited.x != before.x {
+            edited.x
+        } else if edited.y != before.y {
+            edited.y
+        } else {
+            edited.z
+        }
+        .clamp(0.05, 5.0);
+        Vec3::new(value, value, value)
+    } else {
+        Vec3::new(
+            edited.x.clamp(0.05, 5.0),
+            edited.y.clamp(0.05, 5.0),
+            edited.z.clamp(0.05, 5.0),
+        )
+    }
+}
 
 /// One line of numbers for the values window: an axis letter per field, in the
 /// same colour the gizmo uses for that axis.
@@ -4632,6 +4779,25 @@ mod tests {
     }
 
     #[test]
+    fn transform_scale_is_uniform_by_default_but_can_be_per_axis() {
+        assert!(App::new(Launch::default()).uniform_scale);
+        let before = Vec3::new(1.0, 2.0, 3.0);
+        assert_eq!(
+            edited_scale(before, Vec3::new(1.0, 2.5, 3.0), true),
+            Vec3::new(2.5, 2.5, 2.5)
+        );
+        assert_eq!(
+            edited_scale(before, Vec3::new(1.0, 2.5, 3.0), false),
+            Vec3::new(1.0, 2.5, 3.0)
+        );
+        assert_eq!(
+            edited_scale(before, Vec3::new(8.0, 2.0, 3.0), true),
+            Vec3::new(5.0, 5.0, 5.0),
+            "the shared value keeps the existing scale limits"
+        );
+    }
+
+    #[test]
     fn a_ring_lands_on_the_snap_step() {
         assert_eq!(
             snap_angle(37.4, true, 5.0),
@@ -4983,7 +5149,7 @@ mod tests {
     }
 
     #[test]
-    fn turning_a_group_spins_each_piece_about_its_own_pivot() {
+    fn turning_a_group_spins_each_piece_about_its_own_pivot_and_drops_it() {
         let mut app = app_with_a_piece();
         app.models[0].transform.rot_deg = Vec3::new(10.0, 20.0, 30.0);
         app.models[1].transform.rot_deg = Vec3::new(-5.0, 15.0, 45.0);
@@ -5007,8 +5173,12 @@ mod tests {
         let after = centres(&app);
         for (i, (&old, &new)) in before.iter().zip(after.iter()).enumerate() {
             assert!(
-                (new - old).length() < 0.02,
-                "piece {i} moved off its own pivot: {old:?} -> {new:?}"
+                (new.x - old.x).abs() < 0.02 && (new.y - old.y).abs() < 0.02,
+                "piece {i} moved off its own X/Y pivot: {old:?} -> {new:?}"
+            );
+            assert!(
+                app.models[i].bounds().0.z.abs() < 1e-3,
+                "piece {i} was not dropped after turning"
             );
             let turned = app.models[i].transform.rot_deg;
             assert!(
@@ -5247,12 +5417,10 @@ mod tests {
         assert_eq!(app.revision, stamp + 1, "letting go is one plate change");
     }
 
-    /// Supports belong to the plate they were grown for. Moving a piece leaves
-    /// them where they were standing (and keeps them, so nothing has to be
-    /// rebuilt while the hand is still moving); one run brings them back up to
-    /// date.
+    /// Supports for an edited model are removed immediately. Untouched models
+    /// keep theirs, and one run brings the whole plate back up to date.
     #[test]
-    fn a_plate_change_leaves_the_supports_behind_until_the_next_run() {
+    fn a_plate_change_deletes_edited_supports_until_the_next_run() {
         let mut app = app_with_a_piece();
         // The waiting form of the run is what a photographed start uses, and it
         // is also what lets the test do without a worker thread.
@@ -5267,15 +5435,15 @@ mod tests {
 
         app.selection = Selection::single(0);
         app.models[0].transform.pos.x += 20.0;
-        app.refresh_world();
-        app.touched();
+        app.finish_model_edit(&[0], true);
         assert!(
             app.supports_stale(),
-            "the supports did not follow the piece"
+            "the remaining supports predate the edit"
         );
         assert!(app.slice_stale());
         assert!(app.out_of_date());
-        assert_eq!(app.support.tips.len(), grown, "nothing was thrown away");
+        assert!(app.support.tips.len() < grown);
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 1));
 
         app.start_supports_and_wait();
         assert!(!app.out_of_date(), "the second run is up to date again");
@@ -5339,6 +5507,151 @@ mod tests {
             2,
             "and an empty selection removes nothing"
         );
+    }
+
+    #[test]
+    fn moving_a_model_deletes_only_its_supports_and_drops_it() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        assert!(app.support.tips.iter().any(|tip| tip.model_id == 0));
+        assert!(app.support.tips.iter().any(|tip| tip.model_id == 1));
+        let other_z = app.models[1].bounds().0.z;
+
+        app.selection = Selection::single(0);
+        app.tool = Tool::Move;
+        app.grab_handles(gizmo::Handle::Axis(0));
+        app.drag_handles(gizmo::Change::Move(Vec3::new(5.0, 0.0, 0.0)));
+
+        assert!(app.models[0].bounds().0.z.abs() < 1e-3);
+        assert!((app.models[1].bounds().0.z - other_z).abs() < 1e-3);
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 1));
+        assert!(app.support.trunks.iter().all(|trunk| trunk.model_id == 1));
+        assert!(app.support.plates.iter().all(|plate| plate.model_id == 1));
+        assert!(
+            !app.support_mesh.tris.is_empty(),
+            "the other model keeps its supports"
+        );
+    }
+
+    #[test]
+    fn rotating_a_model_deletes_its_supports_and_drops_it() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        app.selection = Selection::single(0);
+        app.tool = Tool::Turn;
+        app.grab_handles(gizmo::Handle::Axis(1));
+        app.drag_handles(gizmo::Change::Turn(30.0));
+
+        assert!(app.models[0].bounds().0.z.abs() < 1e-3);
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 1));
+        assert!(
+            !app.support.tips.is_empty(),
+            "the untouched model remains supported"
+        );
+    }
+
+    #[test]
+    fn deleting_a_model_remaps_and_then_removes_its_supports() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        app.selection = Selection::single(0);
+        app.delete_selected();
+
+        assert_eq!(app.models.len(), 1);
+        assert!(!app.support.tips.is_empty());
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 0));
+        assert!(app.support.anchors.iter().all(|tip| tip.model_id == 0));
+        assert!(app.support.trunks.iter().all(|trunk| trunk.model_id == 0));
+        assert!(app.support.feet.iter().all(|foot| foot.model_id == 0));
+        assert!(app.support.braces.iter().all(|brace| brace.model_id == 0));
+        assert!(app.support.plates.iter().all(|plate| plate.model_id == 0));
+        assert!(!app.support_mesh.tris.is_empty());
+
+        app.selection = Selection::single(0);
+        app.delete_selected();
+        assert!(app.support.is_empty());
+        assert!(app.support_mesh.tris.is_empty());
+    }
+
+    #[test]
+    fn layout_only_removes_supports_for_nonzero_deltas() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        let first_z = app.models[0].bounds().0.z;
+        app.apply_layout_deltas(
+            &[0, 1],
+            &[Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)],
+            "test layout".into(),
+        );
+        assert!(app.support.tips.iter().any(|tip| tip.model_id == 0));
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 0));
+        assert!((app.models[0].bounds().0.z - first_z).abs() < 1e-3);
+        assert!(app.models[1].bounds().0.z.abs() < 1e-3);
+    }
+
+    #[test]
+    fn group_drop_only_removes_supports_for_models_that_move() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        // Put the first piece down without going through the edit helper: its
+        // supports remain present so the zero-delta case is observable.
+        let first_min = app.models[0].bounds().0.z;
+        app.models[0].transform.pos.z -= first_min;
+        app.refresh_world();
+        app.drop_pieces(&[0, 1]);
+        assert!(app.support.tips.iter().any(|tip| tip.model_id == 0));
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 0));
+        assert!(app.models[1].bounds().0.z.abs() < 1e-3);
+    }
+
+    #[test]
+    fn scaling_cancels_an_in_flight_support_run() {
+        let mut app = app_with_a_piece();
+        app.start_supports();
+        assert!(app.support_job.is_some());
+        app.selection = Selection::single(0);
+        app.tool = Tool::Size;
+        app.grab_handles(gizmo::Handle::Axis(0));
+        app.drag_handles(gizmo::Change::Size(1.5));
+        assert!(app.support_job.is_none());
+        assert!(app.pending.is_none());
+        assert!(app.support.is_empty());
+        assert!(app.support_mesh.tris.is_empty());
+    }
+
+    #[test]
+    fn moving_a_model_cancels_an_in_flight_support_run() {
+        let mut app = app_with_a_piece();
+        app.start_supports();
+        assert!(app.support_job.is_some());
+        app.selection = Selection::single(0);
+        app.tool = Tool::Move;
+        app.grab_handles(gizmo::Handle::Axis(0));
+        app.drag_handles(gizmo::Change::Move(Vec3::new(5.0, 0.0, 0.0)));
+        assert!(app.support_job.is_none());
+        assert!(app.pending.is_none());
+        assert!(app.support.is_empty());
+        assert!(app.support_mesh.tris.is_empty());
+        assert!(app.models[0].bounds().0.z.abs() < 1e-3);
+    }
+
+    #[test]
+    fn undo_and_redo_remap_surviving_supports_to_the_restored_indices() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        app.history = Some(project::History::new(app.project()));
+        app.selection = Selection::single(0);
+        app.delete_selected();
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 0));
+
+        app.undo();
+        assert_eq!(app.models.len(), 2);
+        assert!(!app.support.tips.is_empty());
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 1));
+
+        app.redo();
+        assert_eq!(app.models.len(), 1);
+        assert!(app.support.tips.iter().all(|tip| tip.model_id == 0));
     }
 
     #[test]

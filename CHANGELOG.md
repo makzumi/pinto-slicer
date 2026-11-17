@@ -4,6 +4,19 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-16
+
+### Added
+
+- A default-on **Uniform scale** option in the Transform dialog, with optional independent X/Y/Z scaling.
+
+### Fixed
+
+- Support cones now include their back-sphere junctions, creating solid connections to posts and branches, including angled supports.
+- Deleting a model removes only its own supports and correctly remaps support ownership for the remaining models, including through undo/redo.
+- Moving or rotating a model removes its supports and drops it onto the plate while preserving supports for untouched models.
+- Geometry edits cancel stale background support generation, and zero-delta layout operations no longer remove unaffected models' supports.
+
 ## [1.0.2] - 2026-11-16
 
 First public release.
@@ -26,5 +39,6 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.3
 [1.0.2]: https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2
