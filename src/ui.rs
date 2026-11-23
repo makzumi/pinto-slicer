@@ -23,7 +23,9 @@ use crate::project;
 use crate::render::{self, Camera, Scene, ViewMode};
 use crate::selection::Selection;
 use crate::slicer::{self, SliceResult};
-use crate::supports::{self, bvh::Bvh, ContactShape, Preset, SupportModel, TipShape};
+use crate::supports::{
+    self, bvh::Bvh, meshgen, tips, ContactShape, Preset, SupportModel, TipShape,
+};
 
 // ------------------------------------------------------------------ palette
 
@@ -476,6 +478,8 @@ pub struct App {
     show_help: bool,
     /// Bumped by every change to what is on the plate.
     revision: u64,
+    /// Bumped only when model or printer geometry changes.
+    geometry_revision: u64,
     /// The revision the supports on screen were grown for; `None` until a run
     /// has come back. Empty supports belong to every plate, so clearing them
     /// sets this to the current revision.
@@ -549,7 +553,7 @@ impl App {
                 dir: default_export_dir(),
                 stem: "job".into(),
                 format: None,
-                also_masks: true,
+                also_masks: false,
                 rx: None,
                 cancel: None,
                 progress: 0.0,
@@ -573,6 +577,7 @@ impl App {
             snap_deg: 5.0,
             show_help: false,
             revision: 1,
+            geometry_revision: 1,
             supports_for: None,
             slice_for: None,
             pending: None,
@@ -600,7 +605,7 @@ impl App {
         }
         // A window that is only going to be photographed has to show a finished
         // plate, so those two paths take the run up front. Every other start
-        // opens on the bare plate: supports are grown by pressing Auto all, and
+        // opens on the bare plate: supports are grown by pressing Generate Supports, and
         // never because a file was opened.
         if wait_for_runs {
             app.start_supports_and_wait();
@@ -775,6 +780,11 @@ impl App {
     /// They sit on the middle of everything that is picked. Turning spins each
     /// piece about its own centre; scaling still expands about this shared anchor.
     fn gizmo_for(&self) -> Option<gizmo::Gizmo> {
+        // Placement tools belong to the prepare step only. On the other steps
+        // the view keeps its camera but the handles are not offered.
+        if self.tab != Tab::Prepare {
+            return None;
+        }
         let mode = gizmo::Mode::of_tool(self.tool)?;
         // The handles sit on the average of the picked pieces' centres. This is
         // a convenient place to grab the group, not a pivot for group turning.
@@ -1108,7 +1118,9 @@ impl App {
         self.export.dir = saved.export_dir;
         self.export.stem = saved.export_stem;
         self.export.format = saved.export_format;
-        self.export.also_masks = saved.export_masks;
+        // Printer exports contain only the native job file.  Keep the legacy
+        // project field readable, but do not recreate diagnostic mask output.
+        self.export.also_masks = false;
         self.export.progress = 0.0;
         self.export.note.clear();
         self.export.result.clear();
@@ -1123,13 +1135,14 @@ impl App {
             self.support_mesh = Mesh::default();
             self.supports_for = None;
             self.support_note =
-                "Supports are rebuilt from the saved settings with Auto all.".into();
+                "Supports are rebuilt from the saved settings with Generate Supports.".into();
         }
         self.refresh_world();
         if !opening {
             self.remap_supports(&support_map);
         }
         self.revision = self.revision.wrapping_add(1);
+        self.geometry_revision = self.geometry_revision.wrapping_add(1);
         self.change_serial = self.change_serial.wrapping_add(1);
         self.slice_now();
         self.picture = None;
@@ -1307,6 +1320,14 @@ impl App {
     /// re-slicing the scene on every frame.
     fn touched(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+        self.geometry_revision = self.geometry_revision.wrapping_add(1);
+        self.record_change();
+    }
+
+    /// Print settings invalidate the slice, but not supports already grown
+    /// for the unchanged plate geometry.
+    fn settings_touched(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
         self.record_change();
     }
 
@@ -1321,7 +1342,7 @@ impl App {
     /// cannot be out of date: an empty set fits any plate, so it is current by
     /// definition and only a run can make it wrong.
     fn supports_stale(&self) -> bool {
-        !self.support.is_empty() && self.supports_for != Some(self.revision)
+        !self.support.is_empty() && self.supports_for != Some(self.geometry_revision)
     }
 
     /// Is the slice older than the plate?
@@ -1358,7 +1379,7 @@ impl App {
         // settings. Dropping the job sets its cancellation flag; otherwise an
         // old result could arrive later and overwrite the new support layout.
         let _ = self.support_job.take();
-        let at = self.revision;
+        let at = self.geometry_revision;
         if self.settings.supports.enabled {
             let cfg = self.settings.supports.clone();
             // The pieces are already at the requested height, so the generator
@@ -1393,11 +1414,7 @@ impl App {
     /// Slice what is on the plate now, leaving the supports as they are.
     fn slice_now(&mut self) {
         self.reslice();
-        self.slice_for = if self.support.is_empty() {
-            Some(self.revision)
-        } else {
-            self.supports_for
-        };
+        self.slice_for = Some(self.revision);
     }
 
     /// Throw the grown supports away and slice the bare plate.
@@ -1438,7 +1455,7 @@ impl App {
                 self.supports_for = None;
             }
             self.support_note = format!(
-                "Supports for edited models deleted; run Auto all to rebuild.\n{}",
+                "Supports for edited models deleted; run Generate Supports to rebuild.\n{}",
                 self.support.report()
             );
             self.slice_now();
@@ -1505,7 +1522,7 @@ impl App {
     }
 
     /// Load whatever the system chooser answered.
-    fn poll_picker(&mut self) {
+    fn poll_picker(&mut self, ctx: &egui::Context) {
         let Some(answer) = self.picker.poll() else {
             return;
         };
@@ -1524,6 +1541,53 @@ impl App {
                 if let Some(path) = answer.paths.first() {
                     self.start_project_save(path.clone());
                 }
+            }
+            dialog::PickKind::ExportJob { extension, .. } => {
+                if let Some(path) = answer.paths.first() {
+                    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+                    let file_name = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("job");
+                    // The save dialog may or may not append the extension.
+                    // Keep any other dots the user typed in the stem.
+                    let stem = match path.extension().and_then(|ext| ext.to_str()) {
+                        Some(ext) if ext.eq_ignore_ascii_case(extension) => path
+                            .file_stem()
+                            .and_then(|stem| stem.to_str())
+                            .unwrap_or(file_name),
+                        _ => file_name,
+                    };
+                    self.export.dir = parent.display().to_string();
+                    self.export.stem = stem.to_string();
+                    self.record_change();
+                    self.start_export(ctx);
+                }
+            }
+        }
+    }
+
+    /// Load files dropped onto the window.  egui reports the drop once as an
+    /// event, so consuming the paths here does not reload them on subsequent
+    /// frames.
+    fn poll_dropped_files(&mut self, ctx: &egui::Context) {
+        let paths: Vec<PathBuf> = ctx.input(|input| {
+            input
+                .raw
+                .dropped_files
+                .iter()
+                .filter_map(|file| file.path.as_ref().filter(|path| path.exists()).cloned())
+                .collect()
+        });
+        for path in paths {
+            if path.is_dir() {
+                let mut models = folder_models(&path);
+                models.sort();
+                for model in models {
+                    self.load_path(&model);
+                }
+            } else {
+                self.load_path(&path);
             }
         }
     }
@@ -1813,7 +1877,7 @@ impl App {
                     }
                     export::Msg::Done(text) => {
                         self.export.result = text.clone();
-                        self.export.note = String::new();
+                        self.export.note = "Complete".into();
                         self.export.progress = 1.0;
                         self.status = text;
                         done = true;
@@ -1851,7 +1915,8 @@ impl App {
         // The layers in memory only describe the plate they were made from.
         if self.out_of_date() {
             self.export.result =
-                "The plate has changed since this slice: run Auto all and slice again.".into();
+                "The plate has changed since this slice: run Generate Supports and slice again."
+                    .into();
             return;
         }
         let slice = match &self.slice {
@@ -2819,11 +2884,12 @@ impl App {
     fn support_tab(&mut self, ui: &mut egui::Ui) {
         // `changed` waits for the mouse to be released (so sliders stay
         // smooth); nothing here rebuilds anything by itself — the plate is
-        // marked out of date and the run happens when Auto all is pressed.
+        // marked out of date and the run happens when Generate Supports is pressed.
         let mut changed = false;
         let mut delete_all = false;
         let mut auto_all = false;
         let mut turned_off = false;
+        let mut reset_defaults = false;
 
         // ------------------------------------------------------------ top
         card(ui, "SUPPORTS", |ui| {
@@ -2834,7 +2900,7 @@ impl App {
             );
             // The switch is not a settings change to re-run: turning it off puts
             // the pieces back down and throws the grown supports away (below),
-            // and turning it on only makes the tab offer Auto all.
+            // and turning it on only makes the tab offer Generate Supports.
             if was_on && !self.settings.supports.enabled {
                 turned_off = true;
             } else if !was_on && self.settings.supports.enabled {
@@ -2885,7 +2951,7 @@ impl App {
             } else if self.support.is_empty() {
                 ui.label(
                     egui::RichText::new(
-                        "Press Auto all to grow the supports for what is on the plate.",
+                        "Press Generate Supports to grow the supports for what is on the plate.",
                     )
                     .size(10.5)
                     .color(ACCENT),
@@ -2893,7 +2959,7 @@ impl App {
             } else if self.supports_stale() {
                 ui.label(
                     egui::RichText::new(
-                        "The plate has changed since this run — press Auto all again.",
+                        "The plate has changed since this run — press Generate Supports again.",
                     )
                     .size(10.5)
                     .color(ACCENT),
@@ -2930,7 +2996,7 @@ impl App {
             let grown = !self.support.is_empty();
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(can_grow, |ui| {
-                    if accent_button(ui, "Auto all", 118.0) {
+                    if accent_button(ui, "Generate Supports", 158.0) {
                         auto_all = true;
                     }
                 });
@@ -2948,10 +3014,16 @@ impl App {
                     }
                 });
             });
+            ui.horizontal(|ui| {
+                if pill_button(ui, "Reset defaults", false, egui::vec2(126.0, 24.0)) {
+                    reset_defaults = true;
+                }
+            });
         });
 
         // ------------------------------------------------- height from platform
         card(ui, "HEIGHT FROM PLATFORM", |ui| {
+            support_preview(ui, &self.settings.supports, SupportPreview::Height);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 let gap = ui
                     .add(
@@ -3002,6 +3074,7 @@ impl App {
 
         // ------------------------------------------------------------- base
         card(ui, "BASE", |ui| {
+            support_preview(ui, &self.settings.supports, SupportPreview::Base);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 let add = ui
                     .checkbox(
@@ -3069,7 +3142,7 @@ impl App {
 
         // --------------------------------------------------------- one tip
         card(ui, "ONE TIP", |ui| {
-            support_diagram(ui, &self.settings.supports);
+            support_preview(ui, &self.settings.supports, SupportPreview::Tip);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Shape").size(11.5).color(MUTED));
@@ -3170,6 +3243,7 @@ impl App {
 
         // ------------------------------------------------- where they grow
         card(ui, "WHERE THEY GROW", |ui| {
+            support_preview(ui, &self.settings.supports, SupportPreview::Grow);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 changed |= ui
                     .add(
@@ -3209,6 +3283,7 @@ impl App {
 
         // ------------------------------------------------- branches & trunks
         card(ui, "BRANCHES & TRUNKS", |ui| {
+            support_preview(ui, &self.settings.supports, SupportPreview::Branch);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 changed |= ui
                     .add(
@@ -3253,7 +3328,7 @@ impl App {
             );
             ui.label(
                 egui::RichText::new(
-                    "Auto all rebuilds supports. Moving or turning a piece deletes its supports \
+                    "Generate Supports rebuilds supports. Moving or turning a piece deletes its supports \
                      and drops it onto the plate; deleting a piece deletes its supports too.",
                 )
                 .size(10.5)
@@ -3261,6 +3336,19 @@ impl App {
             );
         });
 
+        if reset_defaults {
+            // The switch belongs to the view, not to the numbers: a reset puts
+            // the sliders and presets back without silently turning supports on
+            // or off.
+            let enabled = self.settings.supports.enabled;
+            self.settings.supports = supports::SupportConfig::default();
+            self.settings.supports.enabled = enabled;
+            if self.apply_gap() {
+                self.touched();
+            }
+            self.refresh_world();
+            changed = true;
+        }
         if delete_all {
             self.clear_supports();
         }
@@ -3274,45 +3362,96 @@ impl App {
         }
         if auto_all {
             if changed {
-                self.touched();
+                self.settings_touched();
             }
             self.start_supports();
             self.mode = ViewMode::Solid;
         } else if changed {
             // Settings changed: what is on screen was made with the old ones.
-            self.touched();
+            self.settings_touched();
         }
     }
 
     fn slice_tab(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
-        card(ui, "LAYERS & EXPOSURE", |ui| {
+        card(ui, "LAYER & EXPOSURE", |ui| {
+            let slider_width = ui.available_width();
+            let slider = |ui: &mut egui::Ui,
+                          value: &mut f32,
+                          range: std::ops::RangeInclusive<f32>,
+                          text: &str,
+                          suffix: &str,
+                          step: f32,
+                          changed: &mut bool| {
+                *changed |= ui
+                    .add_sized(
+                        egui::vec2(slider_width, 24.0),
+                        egui::Slider::new(value, range)
+                            .text(text)
+                            .suffix(suffix)
+                            .step_by(step as f64),
+                    )
+                    .changed();
+            };
+            slider(
+                ui,
+                &mut self.settings.layer_height,
+                0.01..=0.2,
+                "Layer height",
+                " mm",
+                0.005,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.bottom_exposure,
+                5.0..=90.0,
+                "Initial exposure",
+                " s",
+                0.5,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.exposure,
+                0.5..=15.0,
+                "Exposure time",
+                " s",
+                0.1,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.rising_height,
+                0.0..=40.0,
+                "Rising height",
+                " mm",
+                0.5,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.motor_speed,
+                20.0..=600.0,
+                "Motor speed",
+                " mm/min",
+                5.0,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.light_off_delay,
+                0.0..=20.0,
+                "Light-off delay",
+                " s",
+                0.1,
+                &mut changed,
+            );
             changed |= ui
-                .add(
-                    egui::Slider::new(&mut self.settings.layer_height, 0.01..=0.2)
-                        .text("layer height")
-                        .suffix(" mm")
-                        .step_by(0.005),
-                )
-                .changed();
-            changed |= ui
-                .add(
-                    egui::Slider::new(&mut self.settings.exposure, 0.5..=15.0)
-                        .text("exposure")
-                        .suffix(" s"),
-                )
-                .changed();
-            changed |= ui
-                .add(
+                .add_sized(
+                    egui::vec2(slider_width, 24.0),
                     egui::Slider::new(&mut self.settings.bottom_layers, 0..=20)
-                        .text("bottom layers"),
-                )
-                .changed();
-            changed |= ui
-                .add(
-                    egui::Slider::new(&mut self.settings.bottom_exposure, 5.0..=90.0)
-                        .text("bottom exposure")
-                        .suffix(" s"),
+                        .text("Bottom exposure layers"),
                 )
                 .changed();
         });
@@ -3355,7 +3494,7 @@ impl App {
         });
 
         if changed {
-            self.touched();
+            self.settings_touched();
         }
     }
 
@@ -3374,7 +3513,7 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(10.0, 10.0)),
             )
             .show(ctx, |ui| {
-                card(ui, "WHAT THE SCREEN SHOWS", |ui| {
+                card(ui, "CROSS-SECTION VIEW", |ui| {
                     if self.slice.is_none() {
                         ui.label(
                             egui::RichText::new("Nothing is sliced yet.")
@@ -3487,46 +3626,17 @@ impl App {
             .filter(|format| printer.supports_format(*format))
             .unwrap_or(printer.format);
         let available_formats = printer.formats.clone();
+        let native = printer.native_res();
+        let x1_pixel_pair = output_format == config::JobFormat::CxdlpV4
+            && (printer.machine_name.eq_ignore_ascii_case("HALOT-X1")
+                || printer.machine_name.eq_ignore_ascii_case("R009")
+                || native == (15120, 6230));
+        let ready = {
+            let busy = self.export.rx.is_some();
+            let layers = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
+            !busy && layers > 0 && !self.out_of_date() && !self.picker.busy()
+        };
         card(ui, "JOB FILE", |ui| {
-            small_label(ui, "File name");
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut self.export.stem)
-                        .desired_width(ui.available_width()),
-                )
-                .changed()
-            {
-                self.record_change();
-            }
-            ui.label(
-                egui::RichText::new(format!(
-                    "File name only; .{} is added automatically for {}",
-                    output_format.extension(),
-                    self.printers[self.printer_idx].name
-                ))
-                .size(11.0)
-                .color(MUTED),
-            );
-            small_label(ui, "Folder");
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut self.export.dir)
-                        .desired_width(ui.available_width()),
-                )
-                .changed()
-            {
-                self.record_change();
-            }
-            ui.label(
-                egui::RichText::new("job.json and README.txt go in the same folder.")
-                    .size(11.0)
-                    .color(MUTED),
-            );
-        });
-
-        card(ui, "NATIVE OUTPUT", |ui| {
-            let printer = &self.printers[self.printer_idx];
-            let native = printer.native_res();
             ui.label(
                 egui::RichText::new(output_format.label())
                     .size(13.0)
@@ -3543,6 +3653,15 @@ impl App {
                 .size(12.0)
                 .color(ACCENT),
             );
+            if x1_pixel_pair {
+                ui.label(
+                    egui::RichText::new(
+                        "HALOT-X1 job files use the newer pixel-pair RLE; open them with UVtools 7.1.0 or newer.",
+                    )
+                    .size(10.5)
+                    .color(MUTED),
+                );
+            }
             if available_formats.len() > 1 {
                 small_label(ui, "Compatible job format");
                 egui::ComboBox::from_id_salt("export_format")
@@ -3565,35 +3684,45 @@ impl App {
             }
             ui.label(
                 egui::RichText::new(
+                    "One save dialog chooses both the file name and the folder; the extension is added automatically.",
+                )
+                .size(11.0)
+                .color(MUTED),
+            );
+            ui.add_space(6.0);
+            ui.add_enabled_ui(ready, |ui| {
+                if accent_button(ui, "Export job file…", ui.available_width()) {
+                    self.picker.export_job(
+                        &self.export.stem,
+                        output_format.extension(),
+                        output_format.label(),
+                        Some(PathBuf::from(self.export.dir.trim())),
+                    );
+                }
+            });
+            if self.picker.busy() {
+                ui.label(
+                    egui::RichText::new("Waiting for the file dialog…")
+                        .size(11.0)
+                        .color(MUTED),
+                );
+            }
+            ui.label(
+                egui::RichText::new(
                     "The LCD resolution always stays native. Format choices are limited to those accepted by this printer profile.",
                 )
                 .size(11.0)
                 .color(MUTED),
             );
-            if ui
-                .checkbox(
-                    &mut self.export.also_masks,
-                    egui::RichText::new("Also write the layer pictures (masks)").size(12.0),
-                )
-                .changed()
-            {
-                self.record_change();
-            }
         });
 
         card(ui, "EXPORT", |ui| {
             let busy = self.export.rx.is_some();
-            let layers = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
             let fresh = !self.out_of_date();
-            ui.add_enabled_ui(!busy && layers > 0 && fresh, |ui| {
-                if accent_button(ui, "Write the job file", ui.available_width()) {
-                    self.start_export(ui.ctx());
-                }
-            });
             if !fresh {
                 ui.label(
                     egui::RichText::new(
-                        "The plate has moved on since this slice: run Auto all and slice again before writing a job file.",
+                        "The plate has moved on since this slice: run Generate Supports and slice again before writing a job file.",
                     )
                     .size(10.5)
                     .color(ACCENT),
@@ -3907,7 +4036,9 @@ impl App {
             self.delete_selected();
         }
         if let Some(tool) = pressed.tool {
-            self.select_tool(tool);
+            if self.tab == Tab::Prepare {
+                self.select_tool(tool);
+            }
         }
     }
 
@@ -3935,7 +4066,7 @@ impl App {
     }
 
     fn values_window(&mut self, ctx: &egui::Context) {
-        if !self.show_values || self.models.is_empty() {
+        if !self.show_values || self.models.is_empty() || self.tab != Tab::Prepare {
             return;
         }
         let Some(idx) = self.selection.primary() else {
@@ -4203,9 +4334,9 @@ impl App {
                          1 Prepare — open a model, arrange the pieces, drop them onto the plate \
                          with the button at the bottom of the layout card.\n\
                          2 Supports — choose a preset and the tip, pillar and base sizes, then \
-                         press Auto all to grow them. Moving or turning a piece deletes its \
+                         press Generate Supports to grow them. Moving or turning a piece deletes its \
                          supports and drops it onto the plate; deleting a piece removes its \
-                         supports too. Auto all rebuilds supports for the current plate.\n\
+                         supports too. Generate Supports rebuilds supports for the current plate.\n\
                          3 Slice — layer height and exposure, then Slice now. The picture beside \
                          the plate is what the screen shows; the bar underneath plays through \
                          the layers.\n\
@@ -4227,7 +4358,7 @@ impl App {
 
                          The Align & space dialog can be dragged by its title bar. Projects \
                          embed their meshes and settings in a single .rslice file; supports \
-                         are rebuilt with Auto all after opening.",
+                         are rebuilt with Generate Supports after opening.",
                     )
                     .size(12.5),
                 );
@@ -4269,7 +4400,8 @@ impl eframe::App for App {
         self.poll_export(ctx);
         self.poll_supports(ctx);
         self.poll_project();
-        self.poll_picker();
+        self.poll_picker(ctx);
+        self.poll_dropped_files(ctx);
         self.history_tick();
         if self.project_job.is_some() || self.picker.busy() {
             ctx.request_repaint_after(std::time::Duration::from_millis(50));
@@ -4278,7 +4410,9 @@ impl eframe::App for App {
         self.top_bar(ctx);
         self.bottom_bar(ctx);
         self.playback_bar(ctx);
-        self.tool_strip(ctx);
+        if self.tab == Tab::Prepare {
+            self.tool_strip(ctx);
+        }
         self.shortcuts(ctx);
         self.side_panel(ctx);
         self.layers_panel(ctx);
@@ -4479,9 +4613,14 @@ fn card(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::none()
         .fill(CARD)
         .rounding(egui::Rounding::same(12.0))
-        .inner_margin(egui::Margin::symmetric(12.0, 10.0))
+        .inner_margin(egui::Margin {
+            left: 12.0,
+            right: 20.0,
+            top: 10.0,
+            bottom: 10.0,
+        })
         .show(ui, |ui| {
-            ui.set_width(ui.available_width());
+            ui.set_width((ui.available_width() - 4.0).max(0.0));
             ui.label(egui::RichText::new(title).size(10.5).strong().color(MUTED));
             ui.add_space(6.0);
             body(ui);
@@ -4587,10 +4726,20 @@ fn badge(painter: &egui::Painter, at: egui::Pos2, text: &str) {
     painter.galley(rect.min + pad, galley, MUTED);
 }
 
-/// A small picture of one support: the cone tip at the top, thin branches
-/// feeding into a trunk, and the chamfered plate it stands on. The widths and
-/// heights follow the settings, so moving a slider changes the drawing.
-fn support_diagram(ui: &mut egui::Ui, s: &crate::supports::SupportConfig) {
+/// Which parameter card a support preview belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SupportPreview {
+    Height,
+    Base,
+    Tip,
+    Grow,
+    Branch,
+}
+
+/// One shaded, orthographic picture of real support geometry. Every preview is
+/// built from the same meshes the generator uses, so its proportions, cone
+/// angles and plate chamfer follow the sliders instead of approximating them.
+fn support_preview(ui: &mut egui::Ui, s: &supports::SupportConfig, kind: SupportPreview) {
     let height = 132.0;
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height),
@@ -4603,85 +4752,491 @@ fn support_diagram(ui: &mut egui::Ui, s: &crate::supports::SupportConfig) {
         egui::Color32::from_rgb(26, 29, 35),
     );
 
-    let mid = rect.center().x;
-    let top = rect.top() + 10.0;
-    let bottom = rect.bottom() - 10.0;
-    let span = bottom - top;
-
-    let plate_h = (s.base.plate_thickness * 8.0).clamp(8.0, 18.0);
-    let plate_top = bottom - plate_h;
-    // Drawn schematically: the plate is always the widest part so the picture
-    // reads at a glance, and the other widths keep their real proportions to it.
-    let plate_r = (rect.width() * 0.22).min(84.0);
-    let ratio = |mm: f32| (mm / s.foot_diameter.max(0.5)).clamp(0.06, 0.55) * plate_r;
-    let trunk_r = ratio(s.trunk_diameter).max(3.0);
-    let tip_low_r = ratio(s.tip.lower_diameter).max(2.4);
-    let tip_up_r =
-        (tip_low_r * (s.tip.upper_diameter / s.tip.lower_diameter.max(0.1))).clamp(1.2, tip_low_r);
-    let tip_h = (s.tip.length * 8.0).clamp(18.0, 46.0);
-
-    // the trunk, from the plate up to where the tips begin
-    let merge_z = plate_top - span * 0.42;
-    p.rect_filled(
-        egui::Rect::from_min_max(
-            egui::pos2(mid - trunk_r, merge_z - 6.0),
-            egui::pos2(mid + trunk_r, plate_top),
-        ),
-        1.0,
-        SUP_COL,
+    let (solid, ghost, caption) = preview_scene(s, kind);
+    paint_preview(
+        &p,
+        rect,
+        &solid,
+        &ghost,
+        format!("support-preview-{kind:?}"),
     );
+    p.text(
+        egui::pos2(rect.left() + 9.0, rect.bottom() - 7.0),
+        egui::Align2::LEFT_BOTTOM,
+        caption,
+        egui::FontId::proportional(10.5),
+        MUTED,
+    );
+}
 
-    // two thin branches fanning out of the trunk top
-    let tip_x = [mid - tip_low_r * 2.6, mid + tip_low_r * 2.6];
-    for (i, x) in tip_x.iter().enumerate() {
-        let from = egui::pos2(*x, top + tip_h);
-        let to = egui::pos2(mid, merge_z);
-        let stroke_w = (ratio(s.branch_diameter) * 1.6).max(1.6);
-        p.line_segment([from, to], egui::Stroke::new(stroke_w, SUP_COL));
-        // one cone at the top of each branch
-        let lift = i as f32 * 0.0;
-        p.add(egui::Shape::convex_polygon(
-            vec![
-                egui::pos2(*x - tip_low_r, top + tip_h + lift),
-                egui::pos2(*x + tip_low_r, top + tip_h + lift),
-                egui::pos2(*x + tip_up_r, top + lift),
-                egui::pos2(*x - tip_up_r, top + lift),
-            ],
-            SUP_COL,
-            egui::Stroke::NONE,
-        ));
+fn preview_scene(s: &supports::SupportConfig, kind: SupportPreview) -> (Mesh, Mesh, String) {
+    let mut m = Mesh::default();
+    // Model boxes are drawn translucently so they do not hide the supports.
+    let mut ghost = Mesh::default();
+    let platform = |m: &mut Mesh| {
+        meshgen::append(
+            m,
+            &slab(Vec3::new(-16.0, -10.0, -0.45), Vec3::new(16.0, 10.0, 0.0)),
+        );
+    };
+    let foot = |m: &mut Mesh| {
+        meshgen::append(
+            m,
+            &meshgen::foot(&supports::Foot {
+                id: 0,
+                pos: Vec3::ZERO,
+                diameter: s.foot_diameter,
+                trunk_id: 0,
+                model_id: 0,
+            }),
+        );
+    };
+    let caption = match kind {
+        SupportPreview::Height => {
+            let h = s.height_from_platform.clamp(0.0, 40.0);
+            platform(&mut m);
+            foot(&mut m);
+            if h > 0.3 {
+                let tip =
+                    tips::make_tip(Vec3::new(0.0, 0.0, h), Vec3::new(0.0, 0.0, -1.0), s, false);
+                let low = tip.lower_end();
+                let r = (s.trunk_diameter * 0.5).max(0.1);
+                if low.z > 1.0 {
+                    meshgen::append(
+                        &mut m,
+                        &meshgen::frustum(Vec3::new(0.0, 0.0, 0.8), r, low, r, 20),
+                    );
+                }
+                meshgen::append(&mut m, &meshgen::tip(&tip, 20));
+            }
+            meshgen::append(
+                &mut ghost,
+                &slab(Vec3::new(-7.0, -5.0, h), Vec3::new(7.0, 5.0, h + 1.2)),
+            );
+            format!("{h:.1} mm gap under the model")
+        }
+        SupportPreview::Base => {
+            platform(&mut m);
+            foot(&mut m);
+            let r = (s.trunk_diameter * 0.5).max(0.1);
+            meshgen::append(
+                &mut m,
+                &meshgen::frustum(
+                    Vec3::new(0.0, 0.0, 0.8),
+                    r,
+                    Vec3::new(0.0, 0.0, 13.0),
+                    r,
+                    20,
+                ),
+            );
+            if s.base.enabled {
+                let t = s.base.plate_thickness.max(0.1);
+                let angle = s.base.chamfer_deg.clamp(15.0, 80.0).to_radians();
+                let chamfer = (t * angle.tan()).min(t * 0.6).max(0.05);
+                let run = chamfer / angle.tan().max(1e-4);
+                let radius = (s.foot_diameter * 0.5 + s.base.margin.max(0.0) + 0.8).max(1.5);
+                let poly: Vec<(f32, f32)> = (0..16)
+                    .map(|i| {
+                        let a = i as f32 / 16.0 * std::f32::consts::TAU;
+                        (radius * a.cos(), radius * a.sin())
+                    })
+                    .collect();
+                meshgen::append(
+                    &mut m,
+                    &meshgen::plate(&supports::Plate {
+                        model_id: 0,
+                        poly,
+                        thickness: t,
+                        chamfer,
+                        chamfer_run: run,
+                    }),
+                );
+                format!(
+                    "plate {:.1} mm · margin {:.1} mm",
+                    s.base.plate_thickness, s.base.margin
+                )
+            } else {
+                "base plate is off".to_string()
+            }
+        }
+        SupportPreview::Tip => {
+            let h = 8.0;
+            let tip = tips::make_tip(Vec3::new(0.0, 0.0, h), Vec3::new(0.0, 0.0, -1.0), s, false);
+            let low = tip.lower_end();
+            let r = (s.tip.lower_diameter * 0.5).max(0.1);
+            if low.z > 2.2 {
+                meshgen::append(
+                    &mut m,
+                    &meshgen::frustum(Vec3::new(0.0, 0.0, 2.2), r, low, r, 20),
+                );
+            }
+            meshgen::append(&mut m, &meshgen::tip(&tip, 24));
+            meshgen::append(
+                &mut ghost,
+                &slab(Vec3::new(-4.5, -3.5, h), Vec3::new(4.5, 3.5, h + 1.0)),
+            );
+            format!(
+                "Ø{:.1} → Ø{:.1} mm · {:.1} mm long",
+                s.tip.upper_diameter, s.tip.lower_diameter, s.tip.length
+            )
+        }
+        SupportPreview::Grow => {
+            let spacing = s.touch_tip_distance.clamp(1.5, 10.0);
+            let angle = s.overhang_angle_deg.clamp(5.0, 80.0).to_radians();
+            let wedge_h = 2.0;
+            let run = wedge_h * angle.tan();
+            let half_w = (spacing * 0.5 + 6.0).max(run + 5.0).max(10.0);
+            platform(&mut m);
+            meshgen::append(
+                &mut ghost,
+                &slab(Vec3::new(-half_w, -5.0, 8.0), Vec3::new(half_w, 5.0, 8.8)),
+            );
+            // The wedge's face is tilted from vertical by the overhang angle,
+            // which is exactly the threshold the tips are placed against.
+            meshgen::append(
+                &mut m,
+                &prism_xz(
+                    [
+                        (-half_w, 8.0),
+                        (-half_w + run, 8.0 - wedge_h),
+                        (-half_w + run, 8.0),
+                    ],
+                    -5.0,
+                    5.0,
+                ),
+            );
+            for side in [-1.0f32, 1.0] {
+                let x = side * spacing * 0.5;
+                let tip =
+                    tips::make_tip(Vec3::new(x, 0.0, 8.0), Vec3::new(0.0, 0.0, -1.0), s, false);
+                let low = tip.lower_end();
+                let r = (s.branch_diameter * 0.5).max(0.08);
+                if low.z > 1.2 {
+                    meshgen::append(
+                        &mut m,
+                        &meshgen::frustum(Vec3::new(x, 0.0, 1.2), r, low, r, 16),
+                    );
+                }
+                meshgen::append(&mut m, &meshgen::tip(&tip, 20));
+            }
+            format!(
+                "{:.0}° overhang · tips {:.1} mm apart",
+                s.overhang_angle_deg, s.touch_tip_distance
+            )
+        }
+        SupportPreview::Branch => {
+            let angle = s.branch_angle_deg.clamp(10.0, 80.0).to_radians();
+            let contact = 12.0;
+            let length = s.tip.length + s.tip.upper_diameter + s.tip.lower_diameter * 0.5;
+            let lower_z = contact + s.tip.contact_depth - length;
+            let merge_z = 4.0;
+            let x = ((lower_z - merge_z).max(0.6) * angle.tan()).min(16.0);
+            let half_w = (x + 3.5).max(7.0);
+            platform(&mut m);
+
+            let foot = supports::Foot {
+                id: 0,
+                pos: Vec3::ZERO,
+                diameter: s.foot_diameter,
+                trunk_id: 0,
+                model_id: 0,
+            };
+            meshgen::append(&mut m, &meshgen::foot(&foot));
+            let trunk_r = (s.trunk_diameter * 0.5).max(0.1);
+            meshgen::append(
+                &mut m,
+                &meshgen::frustum(
+                    Vec3::new(0.0, 0.0, 0.8),
+                    trunk_r,
+                    Vec3::new(0.0, 0.0, merge_z),
+                    trunk_r,
+                    20,
+                ),
+            );
+            for side in [-1.0f32, 1.0] {
+                let tip = tips::make_tip(
+                    Vec3::new(side * x, 0.0, contact),
+                    Vec3::new(0.0, 0.0, -1.0),
+                    s,
+                    false,
+                );
+                let low = tip.lower_end();
+                let br = (s.branch_diameter * 0.5).max(0.08);
+                meshgen::append(
+                    &mut m,
+                    &meshgen::frustum(low, br, Vec3::new(0.0, 0.0, merge_z), br, 16),
+                );
+                meshgen::append(&mut m, &meshgen::tip(&tip, 20));
+            }
+            meshgen::append(
+                &mut ghost,
+                &slab(
+                    Vec3::new(-half_w, -4.0, contact),
+                    Vec3::new(half_w, 4.0, contact + 0.8),
+                ),
+            );
+            format!(
+                "{:.0}° branches · trunk Ø{:.1} mm",
+                s.branch_angle_deg, s.trunk_diameter
+            )
+        }
+    };
+    (m, ghost, caption)
+}
+
+/// A closed box with outward winding.
+fn slab(min: Vec3, max: Vec3) -> Mesh {
+    Mesh {
+        verts: vec![
+            Vec3::new(min.x, min.y, min.z),
+            Vec3::new(max.x, min.y, min.z),
+            Vec3::new(max.x, max.y, min.z),
+            Vec3::new(min.x, max.y, min.z),
+            Vec3::new(min.x, min.y, max.z),
+            Vec3::new(max.x, min.y, max.z),
+            Vec3::new(max.x, max.y, max.z),
+            Vec3::new(min.x, max.y, max.z),
+        ],
+        tris: vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 7, 3],
+            [0, 4, 7],
+            [1, 2, 6],
+            [1, 6, 5],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 7, 6],
+            [3, 6, 2],
+        ],
+        name: String::new(),
+    }
+}
+
+/// A triangular prism from a cross-section in the x/z plane, extruded on y.
+fn prism_xz(points: [(f32, f32); 3], y0: f32, y1: f32) -> Mesh {
+    let mut m = Mesh::default();
+    for (x, z) in points {
+        m.verts.push(Vec3::new(x, y0, z));
+    }
+    for (x, z) in points {
+        m.verts.push(Vec3::new(x, y1, z));
+    }
+    m.tris = vec![
+        [0, 2, 1],
+        [3, 4, 5],
+        [0, 1, 4],
+        [0, 4, 3],
+        [1, 2, 5],
+        [1, 5, 4],
+        [2, 0, 3],
+        [2, 3, 5],
+    ];
+    m
+}
+
+/// Project, shade and paint a mesh inside `rect` with an isometric camera.
+#[derive(Clone, Default)]
+struct PreviewTextures {
+    map: std::collections::HashMap<String, (u64, egui::TextureHandle)>,
+}
+
+fn preview_hash(solid: &Mesh, ghost: &Mesh, out_w: usize, out_h: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    out_w.hash(&mut h);
+    out_h.hash(&mut h);
+    for mesh in [solid, ghost] {
+        mesh.verts.len().hash(&mut h);
+        for v in &mesh.verts {
+            v.x.to_bits().hash(&mut h);
+            v.y.to_bits().hash(&mut h);
+            v.z.to_bits().hash(&mut h);
+        }
+        mesh.tris.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn paint_preview(p: &egui::Painter, rect: egui::Rect, solid: &Mesh, ghost: &Mesh, name: String) {
+    if solid.verts.is_empty() || rect.width() < 4.0 || rect.height() < 4.0 {
+        return;
+    }
+    let yaw = -0.62_f32;
+    let pitch = 0.34_f32;
+    let (sy, cy) = yaw.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    let project = |v: Vec3| {
+        let x1 = v.x * cy - v.y * sy;
+        let y1 = v.x * sy + v.y * cy;
+        let depth = y1 * cp - v.z * sp;
+        let up = y1 * sp + v.z * cp;
+        (x1, up, depth)
+    };
+
+    let mut min = egui::vec2(f32::MAX, f32::MAX);
+    let mut max = egui::vec2(f32::MIN, f32::MIN);
+    for mesh in [solid, ghost] {
+        for &v in &mesh.verts {
+            let (x, up, _) = project(v);
+            min.x = min.x.min(x);
+            min.y = min.y.min(up);
+            max.x = max.x.max(x);
+            max.y = max.y.max(up);
+        }
+    }
+    let span_x = (max.x - min.x).max(1e-3);
+    let span_y = (max.y - min.y).max(1e-3);
+
+    // Supersample and resolve with a real depth buffer. Painter's-algorithm
+    // triangle sorting and per-triangle anti-aliasing leave seams, let
+    // backfaces poke through, and cannot resolve intersecting meshes.
+    const SS: usize = 2;
+    let out_w = ((rect.width() * SS as f32).round() as usize).max(1);
+    let out_h = ((rect.height() * SS as f32).round() as usize).max(1);
+    let w = out_w * SS;
+    let h = out_h * SS;
+    let pad_x = 12.0 * SS as f32;
+    let pad_top = 8.0 * SS as f32;
+    // Keep the caption strip clear of the model.
+    let pad_bottom = 20.0 * SS as f32;
+    let scale = ((w as f32 - pad_x * 2.0) / span_x)
+        .min((h as f32 - pad_top - pad_bottom) / span_y)
+        .max(0.01);
+    let origin_x = w as f32 * 0.5 - (min.x + max.x) * 0.5 * scale;
+    let origin_y =
+        pad_top + (h as f32 - pad_top - pad_bottom) * 0.5 + (min.y + max.y) * 0.5 * scale;
+    let screen = |q: (f32, f32, f32)| (origin_x + q.0 * scale, origin_y - q.1 * scale, q.2);
+
+    let hash = preview_hash(solid, ghost, out_w, out_h);
+    let cache_id = egui::Id::new("support-preview-textures");
+    let cached = p.ctx().data(|d| {
+        d.get_temp::<PreviewTextures>(cache_id).and_then(|c| {
+            c.map
+                .get(&name)
+                .filter(|(h, _)| *h == hash)
+                .map(|(_, t)| t.clone())
+        })
+    });
+    if let Some(texture) = cached {
+        p.image(
+            texture.id(),
+            rect,
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        return;
     }
 
-    // the plate: a slab with a chamfer on both sides
-    let chamfer = (s.base.chamfer_deg.to_radians().tan() * plate_h).clamp(1.0, plate_h);
-    p.add(egui::Shape::convex_polygon(
-        vec![
-            egui::pos2(mid - plate_r, plate_top),
-            egui::pos2(mid + plate_r, plate_top),
-            egui::pos2(mid + plate_r - chamfer, bottom),
-            egui::pos2(mid - plate_r + chamfer, bottom),
-        ],
-        SUP_COL,
-        egui::Stroke::NONE,
-    ));
+    let mut depth_buf = vec![f32::INFINITY; w * h];
+    // Premultiplied RGBA, so translucent boxes compose correctly over both
+    // the opaque supports and the transparent card background.
+    let mut color_buf = vec![[0.0_f32; 4]; w * h];
+    let light = Vec3::new(-0.45, -0.6, 0.75).normalized();
+    let view_grad = Vec3::new(sy * cp, cy * cp, -sp);
+    let edge = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| -> f32 {
+        (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+    };
 
-    // a couple of labels so the picture explains itself
-    p.text(
-        egui::pos2(rect.left() + 8.0, top - 2.0),
-        egui::Align2::LEFT_TOP,
-        format!(
-            "cone Ø{:.1}/{:.1}",
-            s.tip.upper_diameter, s.tip.lower_diameter
-        ),
-        egui::FontId::proportional(10.0),
-        MUTED,
-    );
-    p.text(
-        egui::pos2(rect.right() - 8.0, bottom - 14.0),
-        egui::Align2::RIGHT_BOTTOM,
-        format!("plate {:.1} mm", s.base.plate_thickness),
-        egui::FontId::proportional(10.0),
-        MUTED,
+    let mut raster = |mesh: &Mesh, opacity: f32, cull_backfaces: bool, write_depth: bool| {
+        for tri in &mesh.tris {
+            let va = mesh.verts[tri[0] as usize];
+            let vb = mesh.verts[tri[1] as usize];
+            let vc = mesh.verts[tri[2] as usize];
+            let n = (vb - va).cross(vc - va);
+            if n.length() < 1e-8 {
+                continue;
+            }
+            if cull_backfaces && n.dot(view_grad) >= 0.0 {
+                continue;
+            }
+            let shade = 0.34 + 0.66 * n.normalized().dot(light).abs();
+            let sr = (SUP_COL.r() as f32 / 255.0 * shade).clamp(0.0, 1.0);
+            let sg = (SUP_COL.g() as f32 / 255.0 * shade).clamp(0.0, 1.0);
+            let sb = (SUP_COL.b() as f32 / 255.0 * shade).clamp(0.0, 1.0);
+            let a = screen(project(va));
+            let b = screen(project(vb));
+            let c = screen(project(vc));
+            let area = edge((a.0, a.1), (b.0, b.1), (c.0, c.1));
+            if area.abs() < 1e-7 {
+                continue;
+            }
+            let min_x = a.0.min(b.0).min(c.0).floor().max(0.0) as usize;
+            let max_x = (a.0.max(b.0).max(c.0).ceil() as usize).min(w.saturating_sub(1));
+            let min_y = a.1.min(b.1).min(c.1).floor().max(0.0) as usize;
+            let max_y = (a.1.max(b.1).max(c.1).ceil() as usize).min(h.saturating_sub(1));
+            if max_x < min_x || max_y < min_y {
+                continue;
+            }
+            for y in min_y..=max_y {
+                for x in min_x..=max_x {
+                    let px = x as f32 + 0.5;
+                    let py = y as f32 + 0.5;
+                    let w0 = edge((b.0, b.1), (c.0, c.1), (px, py)) / area;
+                    let w1 = edge((c.0, c.1), (a.0, a.1), (px, py)) / area;
+                    let w2 = 1.0 - w0 - w1;
+                    if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                        continue;
+                    }
+                    let z = w0 * a.2 + w1 * b.2 + w2 * c.2;
+                    let idx = y * w + x;
+                    if z < depth_buf[idx] {
+                        if write_depth {
+                            depth_buf[idx] = z;
+                        }
+                        let dst = &mut color_buf[idx];
+                        dst[0] = sr * opacity + dst[0] * (1.0 - opacity);
+                        dst[1] = sg * opacity + dst[1] * (1.0 - opacity);
+                        dst[2] = sb * opacity + dst[2] * (1.0 - opacity);
+                        dst[3] = opacity + dst[3] * (1.0 - opacity);
+                    }
+                }
+            }
+        }
+    };
+
+    raster(solid, 1.0, false, true);
+    raster(ghost, 0.30, true, false);
+
+    let mut pixels = Vec::with_capacity(out_w * out_h);
+    for y in 0..out_h {
+        for x in 0..out_w {
+            let mut acc = [0.0_f32; 4];
+            for dy in 0..SS {
+                for dx in 0..SS {
+                    let c = color_buf[(y * SS + dy) * w + x * SS + dx];
+                    for k in 0..4 {
+                        acc[k] += c[k];
+                    }
+                }
+            }
+            let n = (SS * SS) as f32;
+            pixels.push(egui::Color32::from_rgba_premultiplied(
+                (acc[0] / n * 255.0).clamp(0.0, 255.0) as u8,
+                (acc[1] / n * 255.0).clamp(0.0, 255.0) as u8,
+                (acc[2] / n * 255.0).clamp(0.0, 255.0) as u8,
+                (acc[3] / n * 255.0).clamp(0.0, 255.0) as u8,
+            ));
+        }
+    }
+    let image = egui::ColorImage {
+        size: [out_w, out_h],
+        pixels,
+    };
+    let texture = p
+        .ctx()
+        .load_texture(name.clone(), image, egui::TextureOptions::LINEAR);
+    p.ctx().data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<PreviewTextures>(cache_id);
+        cache.map.insert(name, (hash, texture.clone()));
+    });
+    p.image(
+        texture.id(),
+        rect,
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+        egui::Color32::WHITE,
     );
 }
 
@@ -4720,6 +5275,28 @@ fn default_export_dir() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_support_preview_builds_finite_geometry() {
+        let cfg = super::supports::SupportConfig::default();
+        for kind in [
+            super::SupportPreview::Height,
+            super::SupportPreview::Base,
+            super::SupportPreview::Tip,
+            super::SupportPreview::Grow,
+            super::SupportPreview::Branch,
+        ] {
+            let (mesh, ghost, caption) = super::preview_scene(&cfg, kind);
+            assert!(!mesh.tris.is_empty(), "preview has no triangles");
+            assert!(!caption.is_empty(), "preview has no caption");
+            for mesh in [&mesh, &ghost] {
+                assert!(mesh
+                    .verts
+                    .iter()
+                    .all(|v| v.x.is_finite() && v.y.is_finite() && v.z.is_finite()));
+            }
+        }
+    }
+
     #[test]
     fn every_tool_carries_its_own_name_glyph_and_key() {
         let mut keys: Vec<&str> = Vec::new();

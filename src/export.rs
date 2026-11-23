@@ -267,35 +267,6 @@ fn run(
         return cancelled(tx);
     }
 
-    let mut manifest = String::new();
-    for (i, layer) in slice.layers.iter().enumerate() {
-        manifest.push_str(&format!(
-            "    {{\"layer\": {}, \"z_mm\": {:.3}}}{}\n",
-            i + 1,
-            layer.z,
-            if i + 1 < slice.layers.len() { "," } else { "" }
-        ));
-    }
-    let pixel = printer.pixel_mm();
-    let json = format!(
-        "{{\n  \"file\": \"{stem}.{extension}\",\n  \"format\": \"{}\",\n  \"printer\": \"{}\",\n  \"machine_name\": \"{}\",\n  \"build_volume_mm\": [{}, {}, {}],\n  \"pixel_size_mm\": [{:.8}, {:.8}],\n  \"resolution_pixels\": [{}, {}],\n  \"mirror\": [{}, {}],\n  \"layer_height_mm\": {},\n  \"layer_count\": {},\n  \"exposure_s\": {},\n  \"bottom_layers\": {},\n  \"bottom_exposure_s\": {},\n  \"supports\": {},\n  \"layers\": [\n{}  ]\n}}\n",
-        opts.format.label(),
-        printer.name,
-        printer.machine_name,
-        printer.build[0], printer.build[1], printer.build[2],
-        pixel[0], pixel[1], res.0, res.1,
-        printer.mirror[0], printer.mirror[1],
-        slice.layer_height,
-        slice.layers.len(),
-        settings.exposure,
-        settings.bottom_layers,
-        settings.bottom_exposure,
-        settings.supports.enabled,
-        manifest
-    );
-    std::fs::write(staging.root.join("job.json"), json)
-        .map_err(|e| format!("could not write job.json: {e}"))?;
-
     if opts.also_masks {
         let mask_dir = staging.root.join("masks");
         std::fs::create_dir_all(&mask_dir).map_err(|e| format!("could not make masks: {e}"))?;
@@ -313,42 +284,13 @@ fn run(
         }
     }
 
-    let readme = format!(
-        "Sliced job for {}\n==========================\n\n\
-         {stem}.{extension} — {}.\n\
-         job.json — the same settings in readable form.\n\
-         {}\n\n\
-         {} layers at {} mm, native mask {} × {} pixels.\n\
-         Exposure {} s, bottom layers {} at {} s.\n\n\
-         The writer follows the corresponding open-source format implementation.\n\
-         Test a short print on the target machine before trusting a long job.\n",
-        printer.name,
-        opts.format.label(),
-        if opts.also_masks {
-            "masks/ — one diagnostic PNG per layer."
-        } else {
-            "No layer pictures were written."
-        },
-        slice.layers.len(),
-        slice.layer_height,
-        res.0,
-        res.1,
-        settings.exposure,
-        settings.bottom_layers,
-        settings.bottom_exposure,
-    );
-    std::fs::write(staging.root.join("README.txt"), readme)
-        .map_err(|e| format!("could not write README.txt: {e}"))?;
     if cancel.load(Ordering::Relaxed) {
         return cancelled(tx);
     }
 
     // This is the point of no return. Once replacement starts, it finishes or
     // rolls back as one transaction; a late cancel cannot leave half a job.
-    let mut outputs = vec![
-        (staging.root.join("job.json"), opts.dir.join("job.json")),
-        (staging.root.join("README.txt"), opts.dir.join("README.txt")),
-    ];
+    let mut outputs = Vec::new();
     if opts.also_masks {
         outputs.push((staging.root.join("masks"), opts.dir.join("masks")));
     }
@@ -390,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn exporting_writes_the_native_job_and_description() {
+    fn exporting_writes_only_the_native_job_by_default() {
         let sl = slicer::slice(&[mesh::sample_block()], 0.5);
         let dir = std::env::temp_dir().join("resin_slicer_export_test");
         let _ = std::fs::remove_dir_all(&dir);
@@ -405,11 +347,8 @@ mod tests {
         )
         .expect("export should work");
         assert!(dir.join("part.cxdlpv4").exists());
-        assert!(dir.join("job.json").exists());
+        assert!(!dir.join("job.json").exists());
         assert!(dir.join("masks/layer_0001.png").exists());
-        let json = std::fs::read_to_string(dir.join("job.json")).unwrap();
-        assert!(json.contains("Creality CXDLP v4"));
-        assert!(json.contains("\"resolution_pixels\": [96, 64]"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -512,11 +451,8 @@ mod tests {
         let sl = slicer::slice(&[mesh::sample_block()], 0.5);
         let dir = std::env::temp_dir().join("resin_slicer_export_preserve_cancel");
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("masks")).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("part.cxdlpv4"), b"previous valid job").unwrap();
-        std::fs::write(dir.join("job.json"), b"previous manifest").unwrap();
-        std::fs::write(dir.join("README.txt"), b"previous readme").unwrap();
-        std::fs::write(dir.join("masks/layer_0001.png"), b"previous mask").unwrap();
         let (tx, _rx) = channel();
         run(
             &options(&dir, true),
@@ -531,18 +467,6 @@ mod tests {
             std::fs::read(dir.join("part.cxdlpv4")).unwrap(),
             b"previous valid job"
         );
-        assert_eq!(
-            std::fs::read(dir.join("job.json")).unwrap(),
-            b"previous manifest"
-        );
-        assert_eq!(
-            std::fs::read(dir.join("README.txt")).unwrap(),
-            b"previous readme"
-        );
-        assert_eq!(
-            std::fs::read(dir.join("masks/layer_0001.png")).unwrap(),
-            b"previous mask"
-        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -553,7 +477,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("part.cxdlpv4"), b"previous valid job").unwrap();
-        std::fs::write(dir.join("job.json"), b"previous manifest").unwrap();
         let mut printer = small_printer();
         // The X1 pixel-pair codec requires an even row width, so this fails
         // only after the staged output has been opened.
@@ -571,10 +494,6 @@ mod tests {
         assert_eq!(
             std::fs::read(dir.join("part.cxdlpv4")).unwrap(),
             b"previous valid job"
-        );
-        assert_eq!(
-            std::fs::read(dir.join("job.json")).unwrap(),
-            b"previous manifest"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1,6 +1,6 @@
 [package]
 name = "pinto_slicer"
-version = "0.1.3"
+version = "1.0.3"
 edition = "2021"
 description = "Pinto Slicer: a resin 3D printer slicer built with Rust, egui and wgpu"
 license = "AGPL-3.0-only"
@@ -8,7 +8,7 @@ repository = "https://github.com/makzumi/pinto-slicer"
 readme = "README.md"
 
 [dependencies]
-eframe = { version = "=0.29.1", features = ["wgpu"] }
+eframe = { version = "=0.29.1", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "x11"] }
 egui = "=0.29.1"
 image = { version = "=0.25.6", default-features = false, features = ["png"] }
 # Established CTB/GOO encoders; the other printer writers live in src/formats.

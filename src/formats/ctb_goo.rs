@@ -33,15 +33,16 @@ fn config(
     c.transition_layers = 0;
     c.exposure_config.exposure_time = Seconds::new(settings.exposure);
     c.first_exposure_config.exposure_time = Seconds::new(settings.bottom_exposure);
-    // A single conservative lift/retract pair is used by all current writers.
-    // 5 mm at 300 mm/min takes 1 s each way; the rest is the user-facing settle.
-    c.exposure_config.lift_distance = Milimeters::new(5.0);
-    c.exposure_config.retract_distance = Milimeters::new(5.0);
-    c.first_exposure_config.lift_distance = Milimeters::new(8.0);
-    c.first_exposure_config.retract_distance = Milimeters::new(8.0);
+    // One lift/retract pair, sized and timed by the user's motion settings.
+    let rise = Milimeters::new(settings.rising_height.max(0.0));
+    let speed = (Milimeters::new(settings.motor_speed.max(1.0)) / Minutes::new(1.0)).convert();
+    c.exposure_config.lift_distance = rise;
+    c.exposure_config.retract_distance = rise;
+    c.first_exposure_config.lift_distance = rise;
+    c.first_exposure_config.retract_distance = rise;
     for exposure in [&mut c.exposure_config, &mut c.first_exposure_config] {
-        exposure.lift_speed = (Milimeters::new(300.0) / Minutes::new(1.0)).convert();
-        exposure.retract_speed = (Milimeters::new(300.0) / Minutes::new(1.0)).convert();
+        exposure.lift_speed = speed;
+        exposure.retract_speed = speed;
     }
     c
 }
@@ -101,7 +102,7 @@ pub(super) fn write_job(
             file.machine_name = printer.machine_name.clone();
             file.resin_parameters.machine_name = printer.machine_name.clone();
             file.print_time = (settings.estimated_minutes(total) * 60.0).round() as u32;
-            let off = Seconds::new(settings.layer_move_s.max(0.0));
+            let off = Seconds::new(settings.light_off_delay.max(0.0));
             file.light_off_delay = off;
             file.bottom_light_off_delay = off;
             // Disable msla_format's illustrative second-stage movements: this
@@ -153,7 +154,7 @@ pub(super) fn write_job(
             });
             file.header.printer_name =
                 msla_format::serde::SizedString::new(printer.machine_name.as_bytes());
-            let off = Seconds::new(settings.layer_move_s.max(0.0));
+            let off = Seconds::new(settings.light_off_delay.max(0.0));
             file.header.exposure_delay_mode = msla_format::goo::ExposureDelayMode::TurnOffTime;
             file.header.turn_off_time = off;
             file.header.bottom_after_retract_time = Seconds::new(0.0);
@@ -206,10 +207,10 @@ mod tests {
                     let file = msla_format::ctb::File::deserialize(&mut des).unwrap();
                     assert_eq!(file.layers.len(), sl.layers.len());
                     assert_eq!((file.resolution.x, file.resolution.y), (96, 64));
-                    assert_eq!(file.lift_speed.raw(), 300.0);
-                    assert_eq!(file.retract_speed.raw(), 300.0);
-                    assert_eq!(file.light_off_delay.raw(), 4.0);
-                    assert_eq!(file.layers[0].light_off_delay.raw(), 4.0);
+                    assert_eq!(file.lift_speed.raw(), 240.0);
+                    assert_eq!(file.retract_speed.raw(), 240.0);
+                    assert_eq!(file.light_off_delay.raw(), 0.5);
+                    assert_eq!(file.layers[0].light_off_delay.raw(), 0.5);
                     assert_eq!(file.bottom_lift_height_2.raw(), 0.0);
                 }
                 JobFormat::Goo => {
@@ -219,10 +220,10 @@ mod tests {
                         (file.header.x_resolution, file.header.y_resolution),
                         (96, 64)
                     );
-                    assert_eq!(file.header.lift_speed.raw(), 300.0);
-                    assert_eq!(file.header.retract_speed.raw(), 300.0);
-                    assert_eq!(file.header.turn_off_time.raw(), 4.0);
-                    assert_eq!(file.layers[0].layer_off_time.raw(), 4.0);
+                    assert_eq!(file.header.lift_speed.raw(), 240.0);
+                    assert_eq!(file.header.retract_speed.raw(), 240.0);
+                    assert_eq!(file.header.turn_off_time.raw(), 0.5);
+                    assert_eq!(file.layers[0].layer_off_time.raw(), 0.5);
                 }
                 _ => unreachable!(),
             }

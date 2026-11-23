@@ -4,6 +4,30 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-22
+
+### Added
+
+- **Reset defaults** on the Supports tab restores the default gap, tip, branch, trunk, base, and preset values without changing whether supports are enabled.
+- 3D support previews for height, base, tip, branch, and trunk settings, with the model shown as a 30% ghost so it no longer hides the geometry being adjusted.
+- Slice controls for initial exposure, exposure time, rising height, motor speed, light-off delay, and bottom exposure layers.
+
+### Changed
+
+- Renamed **Auto all** to **Generate Supports**, matching the only support workflow in the app.
+- Transform tools and the left toolbar now appear only on the Prepare tab, so moving and rotating cannot be started from Supports, Slice, or Export.
+- The Slice view is labeled **Cross-section view**, and print-time estimates use the configured rising height, motor speed, and light-off delay.
+- Export uses one native save dialog for the file name and folder instead of separate path fields, and writes only the printer job file.
+- HALOT-X1 `.cxdlpv4` export now uses the pixel-pair RLE layout expected by UVtools 7.1.0 and newer.
+- Projects are saved as format v2; older `.rslice` files migrate automatically.
+
+### Fixed
+
+- Support previews no longer show cracks, spears, or incorrect occlusion: the software renderer now uses a depth buffer, back-face culling, and supersampling.
+- Fixed the floating Transform window remaining visible after switching away from Prepare.
+- Layer-mask generation now buckets scanline spans and visits only filled rows, making export substantially faster.
+- Corrected CXDLPv4 header fields, per-layer exposure records, RLE framing, and CRCs for Creality HALOT-X1 output.
+
 ## [0.1.3] - 2026-11-16
 
 ### Added
@@ -39,6 +63,7 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.3
 [0.1.3]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.3
 [1.0.2]: https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2

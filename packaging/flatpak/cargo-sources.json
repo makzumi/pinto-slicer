@@ -860,19 +860,6 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/cgl/cgl-0.3.2.crate",
-        "sha256": "0ced0551234e87afee12411d535648dd89d2e7f34c78b753395567aff3d447ff",
-        "dest": "cargo/vendor/cgl-0.3.2"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"0ced0551234e87afee12411d535648dd89d2e7f34c78b753395567aff3d447ff\", \"files\": {}}",
-        "dest": "cargo/vendor/cgl-0.3.2",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/chrono/chrono-0.4.45.crate",
         "sha256": "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327",
         "dest": "cargo/vendor/chrono-0.4.45"
@@ -2103,58 +2090,6 @@
         "type": "inline",
         "contents": "{\"package\": \"d51fa363f025f5c111e03f13eda21162faeacb6911fe8caa0c0349f9cf0c4483\", \"files\": {}}",
         "dest": "cargo/vendor/glow-0.14.2",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/glutin/glutin-0.32.3.crate",
-        "sha256": "12124de845cacfebedff80e877bb37b5b75c34c5a4c89e47e1cdd67fb6041325",
-        "dest": "cargo/vendor/glutin-0.32.3"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"12124de845cacfebedff80e877bb37b5b75c34c5a4c89e47e1cdd67fb6041325\", \"files\": {}}",
-        "dest": "cargo/vendor/glutin-0.32.3",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/glutin-winit/glutin-winit-0.5.0.crate",
-        "sha256": "85edca7075f8fc728f28cb8fbb111a96c3b89e930574369e3e9c27eb75d3788f",
-        "dest": "cargo/vendor/glutin-winit-0.5.0"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"85edca7075f8fc728f28cb8fbb111a96c3b89e930574369e3e9c27eb75d3788f\", \"files\": {}}",
-        "dest": "cargo/vendor/glutin-winit-0.5.0",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/glutin_egl_sys/glutin_egl_sys-0.7.1.crate",
-        "sha256": "4c4680ba6195f424febdc3ba46e7a42a0e58743f2edb115297b86d7f8ecc02d2",
-        "dest": "cargo/vendor/glutin_egl_sys-0.7.1"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"4c4680ba6195f424febdc3ba46e7a42a0e58743f2edb115297b86d7f8ecc02d2\", \"files\": {}}",
-        "dest": "cargo/vendor/glutin_egl_sys-0.7.1",
-        "dest-filename": ".cargo-checksum.json"
-    },
-    {
-        "type": "archive",
-        "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/glutin_glx_sys/glutin_glx_sys-0.6.1.crate",
-        "sha256": "8a7bb2938045a88b612499fbcba375a77198e01306f52272e692f8c1f3751185",
-        "dest": "cargo/vendor/glutin_glx_sys-0.6.1"
-    },
-    {
-        "type": "inline",
-        "contents": "{\"package\": \"8a7bb2938045a88b612499fbcba375a77198e01306f52272e692f8c1f3751185\", \"files\": {}}",
-        "dest": "cargo/vendor/glutin_glx_sys-0.6.1",
         "dest-filename": ".cargo-checksum.json"
     },
     {

@@ -56,7 +56,7 @@ fn main() -> eframe::Result<()> {
     let mut start_tab: Option<String> = None;
     let mut start_tool: Option<String> = None;
     let mut printer_name: Option<String> = None;
-    let mut masks = true;
+    let mut masks = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {

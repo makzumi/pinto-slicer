@@ -85,6 +85,45 @@ pub fn rotate_xyz(p: Vec3, deg: Vec3) -> Vec3 {
     Vec3::new(q.x * cz - q.y * sz, q.x * sz + q.y * cz, q.z)
 }
 
+/// Apply an incremental turn around a world axis to the existing XYZ
+/// orientation.  Adding to one Euler component is only equivalent while the
+/// object is still aligned with the world; after a previous turn it changes a
+/// different effective axis.  The matrix round-trip keeps the public,
+/// serialized Euler fields while composing the actual rotations correctly.
+fn compose_world_turn(current: Vec3, axis: usize, degrees: f32) -> Vec3 {
+    let (sx, cx) = current.x.to_radians().sin_cos();
+    let (sy, cy) = current.y.to_radians().sin_cos();
+    let (sz, cz) = current.z.to_radians().sin_cos();
+    let mut m = [
+        [cz * cy, cz * sy * sx - sz * cx, cz * sy * cx + sz * sx],
+        [sz * cy, sz * sy * sx + cz * cx, sz * sy * cx - cz * sx],
+        [-sy, cy * sx, cy * cx],
+    ];
+    let (sa, ca) = degrees.to_radians().sin_cos();
+    let r = match axis {
+        0 => [[1.0, 0.0, 0.0], [0.0, ca, -sa], [0.0, sa, ca]],
+        1 => [[ca, 0.0, sa], [0.0, 1.0, 0.0], [-sa, 0.0, ca]],
+        _ => [[ca, -sa, 0.0], [sa, ca, 0.0], [0.0, 0.0, 1.0]],
+    };
+    let old = m;
+    for row in 0..3 {
+        for col in 0..3 {
+            m[row][col] = (0..3).map(|k| r[row][k] * old[k][col]).sum();
+        }
+    }
+
+    let y = (-m[2][0]).clamp(-1.0, 1.0).asin();
+    let cy = y.cos();
+    let (x, z) = if cy.abs() > 1e-6 {
+        (m[2][1].atan2(m[2][2]), m[1][0].atan2(m[0][0]))
+    } else {
+        // At the Euler singularity there are infinitely many equivalent X/Z
+        // pairs. Keep X stable and put the remaining heading in Z.
+        (0.0, (-m[0][1]).atan2(m[1][1]))
+    };
+    Vec3::new(x.to_degrees(), y.to_degrees(), z.to_degrees())
+}
+
 /// Which axes of the model are flipped. A mirror is part of the placement, not
 /// a change to the mesh data, so a piece can be mirrored back and forth
 /// without ever losing the original geometry.
@@ -171,10 +210,8 @@ impl Transform {
 
     /// Turn the piece about its own centre.
     pub fn turn_about(&mut self, axis: usize, degrees: f32, centre: Vec3) {
-        self.anchored(centre, |t| match axis {
-            0 => t.rot_deg.x += degrees,
-            1 => t.rot_deg.y += degrees,
-            _ => t.rot_deg.z += degrees,
+        self.anchored(centre, |t| {
+            t.rot_deg = compose_world_turn(t.rot_deg, axis, degrees);
         });
     }
 

@@ -251,7 +251,12 @@ pub struct PrintSettings {
     pub exposure: f32,
     pub bottom_layers: u32,
     pub bottom_exposure: f32,
-    pub layer_move_s: f32,
+    /// How far the platform rises between layers, in millimetres.
+    pub rising_height: f32,
+    /// Platform travel speed, in millimetres per minute.
+    pub motor_speed: f32,
+    /// Rest after the platform settles and before the next exposure, in seconds.
+    pub light_off_delay: f32,
     pub supports: crate::supports::SupportConfig,
 }
 
@@ -262,24 +267,34 @@ impl Default for PrintSettings {
             exposure: 2.5,
             bottom_layers: 5,
             bottom_exposure: 35.0,
-            layer_move_s: 4.0,
+            rising_height: 6.0,
+            motor_speed: 240.0,
+            light_off_delay: 0.5,
             supports: crate::supports::SupportConfig::default(),
         }
     }
 }
 
 impl PrintSettings {
-    /// Rough print time: each layer takes exposure plus the lift and settle.
+    /// Time spent moving the platform up and back down for one layer. The
+    /// platform travels the rise twice (up, then back down) at `motor_speed`.
+    pub fn travel_seconds(&self) -> f32 {
+        (2.0 * self.rising_height.max(0.0) / self.motor_speed.max(1.0)) * 60.0
+    }
+
+    /// Seconds one layer takes from exposure to exposure.
+    pub fn layer_seconds(&self, index: usize) -> f32 {
+        let exposure = if (index as u32) < self.bottom_layers {
+            self.bottom_exposure
+        } else {
+            self.exposure
+        };
+        exposure + self.travel_seconds() + self.light_off_delay.max(0.0)
+    }
+
+    /// Rough print time: exposure, lift/retract, and the light-off settle.
     pub fn estimated_minutes(&self, layers: usize) -> f32 {
-        let mut secs = 0.0f32;
-        for i in 0..layers {
-            let exposure = if (i as u32) < self.bottom_layers {
-                self.bottom_exposure
-            } else {
-                self.exposure
-            };
-            secs += exposure + self.layer_move_s;
-        }
+        let secs: f32 = (0..layers).map(|i| self.layer_seconds(i)).sum();
         secs / 60.0
     }
 }

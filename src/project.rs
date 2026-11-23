@@ -17,7 +17,7 @@ use crate::config::{JobFormat, PrintSettings, PrinterProfile};
 use crate::mesh::{Mesh, Transform};
 
 const MAGIC: &[u8; 8] = b"RSLICE\0\0";
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 const MAX_PROJECT_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const HISTORY_LIMIT: usize = 40;
 const COALESCE_FOR: Duration = Duration::from_millis(350);
@@ -84,10 +84,14 @@ fn valid_settings(settings: &PrintSettings) -> bool {
     positive(settings.layer_height)
         && nonnegative(settings.exposure)
         && nonnegative(settings.bottom_exposure)
-        && nonnegative(settings.layer_move_s)
+        && nonnegative(settings.rising_height)
+        && positive(settings.motor_speed)
+        && nonnegative(settings.light_off_delay)
         && settings.exposure <= 86_400.0
         && settings.bottom_exposure <= 86_400.0
-        && settings.layer_move_s <= 86_400.0
+        && settings.rising_height <= 1_000.0
+        && settings.motor_speed <= 100_000.0
+        && settings.light_off_delay <= 86_400.0
         && settings.bottom_layers <= 20_000
         && valid_supports(&settings.supports)
 }
@@ -124,6 +128,69 @@ pub struct Project {
     pub layout_gap: f32,
     pub snap: bool,
     pub snap_deg: f32,
+}
+
+/// The settings stored by project version 1. Bincode is positional, so an old
+/// file can only be read with the exact field layout it was written with.
+#[derive(Serialize, Deserialize)]
+struct PrintSettingsV1 {
+    layer_height: f32,
+    exposure: f32,
+    bottom_layers: u32,
+    bottom_exposure: f32,
+    layer_move_s: f32,
+    supports: crate::supports::SupportConfig,
+}
+
+/// Project version 1, before the lift, motor and light-off settings existed.
+#[derive(Serialize, Deserialize)]
+struct ProjectV1 {
+    printers: Vec<PrinterProfile>,
+    printer_idx: usize,
+    settings: PrintSettingsV1,
+    models: Vec<ProjectModel>,
+    selection: Vec<usize>,
+    export_dir: String,
+    export_stem: String,
+    export_format: Option<JobFormat>,
+    export_masks: bool,
+    layout_gap: f32,
+    snap: bool,
+    snap_deg: f32,
+}
+
+impl From<ProjectV1> for Project {
+    fn from(old: ProjectV1) -> Self {
+        // Version 1 used one number for the whole inter-layer pause. Keep its
+        // total cycle time by treating the default lift as travel and the rest
+        // as light-off delay.
+        let rising_height = 6.0;
+        let motor_speed = 240.0;
+        let travel = (2.0 * rising_height / motor_speed) * 60.0;
+        Self {
+            printers: old.printers,
+            printer_idx: old.printer_idx,
+            settings: PrintSettings {
+                layer_height: old.settings.layer_height,
+                exposure: old.settings.exposure,
+                bottom_layers: old.settings.bottom_layers,
+                bottom_exposure: old.settings.bottom_exposure,
+                rising_height,
+                motor_speed,
+                light_off_delay: (old.settings.layer_move_s - travel).max(0.0),
+                supports: old.settings.supports,
+            },
+            models: old.models,
+            selection: old.selection,
+            export_dir: old.export_dir,
+            export_stem: old.export_stem,
+            export_format: old.export_format,
+            export_masks: old.export_masks,
+            layout_gap: old.layout_gap,
+            snap: old.snap,
+            snap_deg: old.snap_deg,
+        }
+    }
 }
 
 impl Project {
@@ -203,16 +270,25 @@ impl Project {
             .read_exact(&mut version)
             .map_err(|_| "the project version is missing".to_string())?;
         let version = u16::from_le_bytes(version);
-        if version != VERSION {
+        if version != 1 && version != VERSION {
             return Err(format!(
-                "project version {version} is not supported (this app reads version {VERSION})"
+                "project version {version} is not supported (this app reads versions 1 and {VERSION})"
             ));
         }
-        let project: Self = bincode::options()
-            .with_fixint_encoding()
-            .with_limit(MAX_PROJECT_BYTES)
-            .deserialize_from(&mut reader)
-            .map_err(|e| format!("could not decode the project: {e}"))?;
+        let project = if version == 1 {
+            let old: ProjectV1 = bincode::options()
+                .with_fixint_encoding()
+                .with_limit(MAX_PROJECT_BYTES)
+                .deserialize_from(&mut reader)
+                .map_err(|e| format!("could not decode the project: {e}"))?;
+            Project::from(old)
+        } else {
+            bincode::options()
+                .with_fixint_encoding()
+                .with_limit(MAX_PROJECT_BYTES)
+                .deserialize_from(&mut reader)
+                .map_err(|e| format!("could not decode the project: {e}"))?
+        };
         let mut trailing = [0_u8; 1];
         if reader.read(&mut trailing).map_err(|e| e.to_string())? != 0 {
             return Err("the project has unexpected data after its end".into());

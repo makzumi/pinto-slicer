@@ -108,13 +108,13 @@ No root access is required. Make sure `~/.local/bin` is on your `PATH` if you wa
 ## The four-step workflow
 
 1. **Prepare** — Open one or more STL/OBJ files, choose a printer profile, and arrange the plate. Use the 3D handles or the **Transform** panel for precise placement. **Drop onto the plate** settles selected models, while **Align & space selected…** aligns or distributes multiple pieces.
-2. **Supports** — Choose a preset and configure the platform gap, tips, branches, trunks, and base. Click **Auto all** to generate supports for the current plate. Moving or turning a model deletes its supports and drops it onto the plate; deleting a model removes its supports too. Supports for untouched models are preserved, and **Auto all** rebuilds the current plate.
+2. **Supports** — Choose a preset and configure the platform gap, tips, branches, trunks, and base. Click **Generate Supports** to generate supports for the current plate. Moving or turning a model deletes its supports and drops it onto the plate; deleting a model removes its supports too. Supports for untouched models are preserved, and **Generate Supports** rebuilds the current plate.
 3. **Slice** — Set layer height and exposure, then click **Slice now**. Inspect the exposure mask, drag the layer slider, or use playback to move through the job.
-4. **Export** — Choose a compatible format and destination. Export writes the printer job plus `job.json` and `README.txt`; optional PNG masks can also be written for each layer.
+4. **Export** — Choose a compatible format, then pick the file name and folder in one save dialog. Export writes the printer job file only. HALOT-X1 `.cxdlpv4` files use the newer pixel-pair RLE, so use UVtools 7.1.0 or newer to inspect them.
 
 ### Projects
 
-Use the **File** menu to save and reopen `.rslice` projects. Meshes are embedded, so a project does not depend on the original STL/OBJ paths. Derived supports are not silently regenerated after opening; use **Auto all** on the Supports step when you are ready to rebuild them.
+Use the **File** menu to save and reopen `.rslice` projects. Meshes are embedded, so a project does not depend on the original STL/OBJ paths. Derived supports are not silently regenerated after opening; use **Generate Supports** on the Supports step when you are ready to rebuild them.
 
 ## Controls
 
@@ -164,12 +164,11 @@ pinto_slicer --tool turn part.stl      # Start with a specific tool
 ```bash
 pinto_slicer --inspect ~/parts/
 pinto_slicer --export job.cxdlpv4 part.stl
-pinto_slicer --export job.cxdlpv4 part.stl --no-masks
 pinto_slicer --printer 'ELEGOO Saturn 3 Ultra' --export job.ctb part.stl
 pinto_slicer --export job.sl1s part.stl
 ```
 
-The output extension selects the job format. `--printer` selects a hardware profile; otherwise the profile is inferred from the format where possible. Batch export always uses the profile's full native LCD resolution. `--no-masks` disables the optional PNG layer sidecars.
+The output extension selects the job format. `--printer` selects a hardware profile; otherwise the profile is inferred from the format where possible. Batch export always uses the profile's full native LCD resolution.
 
 ### Capture a screenshot
 

@@ -21,6 +21,10 @@ pub enum PickKind {
     Models,
     OpenProject,
     SaveProject,
+    ExportJob {
+        extension: &'static str,
+        label: &'static str,
+    },
 }
 
 pub struct Answer {
@@ -51,13 +55,13 @@ impl Picker {
         self.pending.is_some()
     }
 
-    fn request(&mut self, kind: PickKind, start: Option<PathBuf>) {
+    fn request(&mut self, kind: PickKind, start: Option<PathBuf>, suggested: Option<String>) {
         if self.busy() {
             return;
         }
         let (tx, rx) = channel();
         std::thread::spawn(move || {
-            let picked = ask(kind, start).unwrap_or_default();
+            let picked = ask(kind, start, suggested).unwrap_or_default();
             let _ = tx.send(picked);
         });
         self.pending = Some(Pending { kind, rx });
@@ -65,17 +69,33 @@ impl Picker {
 
     pub fn open_models(&mut self) {
         let start = self.last_dir.clone();
-        self.request(PickKind::Models, start);
+        self.request(PickKind::Models, start, None);
     }
 
     pub fn open_project(&mut self) {
         let start = self.last_dir.clone();
-        self.request(PickKind::OpenProject, start);
+        self.request(PickKind::OpenProject, start, None);
     }
 
     pub fn save_project(&mut self, current: Option<PathBuf>) {
         let start = current.or_else(|| self.last_dir.clone());
-        self.request(PickKind::SaveProject, start);
+        self.request(PickKind::SaveProject, start, None);
+    }
+
+    /// Ask for the single destination file of a printer job. The desktop's own
+    /// save dialog supplies both the name and the folder.
+    pub fn export_job(
+        &mut self,
+        stem: &str,
+        extension: &'static str,
+        label: &'static str,
+        start: Option<PathBuf>,
+    ) {
+        self.request(
+            PickKind::ExportJob { extension, label },
+            start,
+            Some(format!("{stem}.{extension}")),
+        );
     }
 
     /// Whatever the user picked, once. Empty until the dialog is answered.
@@ -118,7 +138,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 }
 
 /// Put the question to the desktop and wait for an answer.
-fn ask(kind: PickKind, start: Option<PathBuf>) -> Option<Vec<PathBuf>> {
+fn ask(kind: PickKind, start: Option<PathBuf>, suggested: Option<String>) -> Option<Vec<PathBuf>> {
     let runtime = runtime();
     let _guard = runtime.enter();
     runtime.block_on(async move {
@@ -126,36 +146,41 @@ fn ask(kind: PickKind, start: Option<PathBuf>) -> Option<Vec<PathBuf>> {
             PickKind::Models => "Open models",
             PickKind::OpenProject => "Open project",
             PickKind::SaveProject => "Save project",
+            PickKind::ExportJob { .. } => "Export job file",
         });
         dialog = match kind {
             PickKind::Models => dialog.add_filter(MODELS, &MODEL_EXTENSIONS),
             PickKind::OpenProject | PickKind::SaveProject => {
                 dialog.add_filter(PROJECTS, &[PROJECT_EXTENSION])
             }
+            PickKind::ExportJob { extension, label } => {
+                dialog.add_filter(format!("{label} (*.{extension})"), &[extension])
+            }
         };
         if let Some(start) = start {
             if start.is_dir() {
                 dialog = dialog.set_directory(start);
-                if kind == PickKind::SaveProject {
-                    dialog = dialog.set_file_name("project.rslice");
-                }
-            } else {
-                if let Some(dir) = start.parent() {
-                    dialog = dialog.set_directory(dir);
-                }
-                if kind == PickKind::SaveProject {
-                    if let Some(name) = start.file_name().and_then(|s| s.to_str()) {
-                        dialog = dialog.set_file_name(name);
-                    }
+            } else if let Some(dir) = start.parent() {
+                dialog = dialog.set_directory(dir);
+            }
+        }
+        match kind {
+            PickKind::SaveProject => {
+                dialog = dialog.set_file_name(suggested.as_deref().unwrap_or("project.rslice"));
+            }
+            PickKind::ExportJob { .. } => {
+                if let Some(name) = &suggested {
+                    dialog = dialog.set_file_name(name);
                 }
             }
-        } else if kind == PickKind::SaveProject {
-            dialog = dialog.set_file_name("project.rslice");
+            _ => {}
         }
         let picked = match kind {
             PickKind::Models => dialog.pick_files().await,
             PickKind::OpenProject => dialog.pick_file().await.map(|file| vec![file]),
-            PickKind::SaveProject => dialog.save_file().await.map(|file| vec![file]),
+            PickKind::SaveProject | PickKind::ExportJob { .. } => {
+                dialog.save_file().await.map(|file| vec![file])
+            }
         }?;
         Some(picked.iter().map(|f| f.path().to_path_buf()).collect())
     })

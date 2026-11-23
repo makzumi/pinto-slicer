@@ -78,9 +78,32 @@ fn append_checksum(file: &mut std::fs::File) -> Result<(), String> {
         }
         state = crc32(&buf[..n], state);
     }
+    // Do not rely on the position left by the final zero-byte read.  Seeking
+    // explicitly also makes this correct for every File implementation.
+    file.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
     file.write_all(&state.to_be_bytes())
         .map_err(|e| e.to_string())?;
-    file.flush().map_err(|e| e.to_string())
+    file.flush().map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())
+}
+
+fn validate_v4_layers(file: &mut std::fs::File, definitions: &[(u32, u32)]) -> Result<(), String> {
+    let file_len = file.metadata().map_err(|e| e.to_string())?.len();
+    let payload_end = file_len;
+    for (index, &(address, size)) in definitions.iter().enumerate() {
+        let end = u64::from(address)
+            .checked_add(u64::from(size))
+            .ok_or_else(|| format!("CXDLPv4 layer {index} address overflow"))?;
+        if u64::from(address) < u64::from(LAYER_DEF_EX_SIZE as u32) || end > payload_end {
+            return Err(format!(
+                "CXDLPv4 layer {index} points outside the file: address={address}, size={size}, payload={payload_end}"
+            ));
+        }
+        if size < LAYER_DEF_EX_SIZE as u32 {
+            return Err(format!("CXDLPv4 layer {index} has an invalid size {size}"));
+        }
+    }
+    Ok(())
 }
 
 /// The seven-bit gray RLE shared by classic CXDLPv4 and CTB.
@@ -238,17 +261,19 @@ fn write_v4_header(
 }
 
 fn write_v4_params(file: &mut std::fs::File, settings: &PrintSettings) -> std::io::Result<()> {
+    let lift = settings.rising_height.max(0.0);
+    let speed = settings.motor_speed.max(1.0);
     for v in [
-        8.0,
-        300.0,
-        5.0,
-        300.0,
-        300.0,
-        0.0,
-        0.0,
-        0.0,
-        settings.layer_move_s,
-        settings.layer_move_s,
+        lift,  // bottom lift height
+        speed, // bottom lift speed
+        lift,  // normal lift height
+        speed, // normal lift speed
+        speed, // retract speed
+        0.0,   // volume (ml)
+        0.0,   // weight (g)
+        0.0,   // cost
+        settings.light_off_delay,
+        settings.light_off_delay,
     ] {
         lef(file, v)?;
     }
@@ -262,7 +287,10 @@ fn write_v4_params(file: &mut std::fs::File, settings: &PrintSettings) -> std::i
 }
 
 fn write_v4_slicer(file: &mut std::fs::File, settings: &PrintSettings) -> std::io::Result<()> {
-    for v in [8.0, 300.0, 5.0, 300.0, 0.0, 300.0, 0.0] {
+    // Two-stage lift is not exposed by the UI; keep the secondary stage at zero
+    // so the machine uses the primary motion from the print parameters and the
+    // per-layer records.
+    for v in [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] {
         lef(file, v)?;
     }
     le32(file, 1)?; // per-layer records are present
@@ -274,11 +302,11 @@ fn write_v4_slicer(file: &mut std::fs::File, settings: &PrintSettings) -> std::i
     le32(file, 1)?;
     le32(file, 0x0106_0300)?;
     for v in [
-        settings.layer_move_s,
-        0.0,
+        0.0, // rest time after retract (light-off is stored per layer)
+        0.0, // rest time before lift
         settings.exposure,
         settings.bottom_exposure,
-        0.0,
+        0.0, // rest time after lift
     ] {
         lef(file, v)?;
     }
@@ -328,18 +356,20 @@ pub fn write_v4(
         };
         let data_address = file.stream_position().map_err(|e| formats::io(path, e))? as u32;
         let bottom = (i as u32) < settings.bottom_layers;
+        let lift = settings.rising_height.max(0.0);
+        let speed = settings.motor_speed.max(1.0);
         for v in [
-            8.0,
-            300.0,
-            5.0,
-            300.0,
-            300.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            settings.layer_move_s,
-            255.0,
+            lift,  // lift height
+            speed, // lift speed
+            0.0,   // secondary lift height
+            0.0,   // secondary lift speed
+            speed, // retract speed
+            0.0,   // secondary retract height
+            0.0,   // secondary retract speed
+            0.0,   // rest before lift
+            0.0,   // rest after lift
+            0.0,   // rest after retract (light-off lives in the layer def)
+            255.0, // light PWM
         ] {
             lef(&mut file, v).map_err(|e| formats::io(path, e))?;
         }
@@ -351,7 +381,7 @@ pub fn write_v4(
             } else {
                 settings.exposure
             },
-            settings.layer_move_s,
+            settings.light_off_delay,
             data_address,
             (LAYER_DEF_EX_SIZE + encoded.len()) as u32,
         ));
@@ -375,6 +405,11 @@ pub fn write_v4(
     .map_err(|e| formats::io(path, e))?;
     file.seek(SeekFrom::Start(layers_offset as u64))
         .map_err(|e| formats::io(path, e))?;
+    let layer_ranges: Vec<(u32, u32)> = definitions
+        .iter()
+        .map(|(_, _, _, address, size)| (*address, *size))
+        .collect();
+    validate_v4_layers(&mut file, &layer_ranges).map_err(|e| formats::io(path, e))?;
     for (z, exposure, off, address, size) in definitions {
         lef(&mut file, z).map_err(|e| formats::io(path, e))?;
         lef(&mut file, exposure).map_err(|e| formats::io(path, e))?;
@@ -446,7 +481,7 @@ pub fn write_v3(
         // Exposure is in deciseconds. CL-60 speeds are integer mm/s;
         // UVtools rounds the reference 80/80/150 mm/min to 1/1/3 here.
         (settings.exposure.max(0.0) * 10.0).round() as u16,
-        settings.layer_move_s.ceil().max(1.0) as u16,
+        (settings.motor_speed / 60.0).round().max(1.0) as u16,
         settings.bottom_exposure.round().max(0.0) as u16,
         settings.bottom_layers.min(u16::MAX as u32) as u16,
         7,

@@ -133,7 +133,7 @@ fn write_anycubic_header(
         px.max(py),
         slice.layer_height,
         settings.exposure,
-        settings.layer_move_s,
+        settings.light_off_delay,
         settings.bottom_exposure,
         settings.bottom_layers as f32,
         5.0,
@@ -420,7 +420,7 @@ fn write_photon_header(
         slice.layer_height,
         settings.exposure,
         settings.bottom_exposure,
-        settings.layer_move_s,
+        settings.light_off_delay,
     ] {
         f32le(file, v).map_err(|e| e.to_string())?;
     }
@@ -474,8 +474,8 @@ fn write_photon(
         0.0,
         0.0,
         0.0,
-        settings.layer_move_s,
-        settings.layer_move_s,
+        settings.light_off_delay,
+        settings.light_off_delay,
     ] {
         f32le(&mut file, v).map_err(|e| super::io(path, e))?;
     }
@@ -513,7 +513,7 @@ fn write_photon(
     for entry in entries {
         f32le(&mut file, entry.height).map_err(|e| super::io(path, e))?;
         f32le(&mut file, entry.exposure).map_err(|e| super::io(path, e))?;
-        f32le(&mut file, settings.layer_move_s).map_err(|e| super::io(path, e))?;
+        f32le(&mut file, settings.light_off_delay).map_err(|e| super::io(path, e))?;
         u32le(&mut file, entry.address).map_err(|e| super::io(path, e))?;
         u32le(&mut file, entry.length).map_err(|e| super::io(path, e))?;
         u32le(&mut file, 0).map_err(|e| super::io(path, e))?;

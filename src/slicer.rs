@@ -167,12 +167,53 @@ pub fn fill_mask(
     let sx = (max[0] - min[0]).max(1e-6);
     let sy = (max[1] - min[1]).max(1e-6);
     let sub = 2usize;
-    let mut counts = vec![0u8; w * h];
+    let rows = h * sub;
+
+    // Only the scanlines the layer can touch need work. This matters most for
+    // the tiny layers at the top of a print, where the plate resolution is
+    // still full size.
+    let mut y_lo = f32::MAX;
+    let mut y_hi = f32::MIN;
+    for s in &layer.segs {
+        y_lo = y_lo.min(s.a[1]).min(s.b[1]);
+        y_hi = y_hi.max(s.a[1]).max(s.b[1]);
+    }
+    if y_hi <= y_lo {
+        return;
+    }
+    let mut py_lo = (((y_lo - min[1]) / sy * rows as f32).floor().max(0.0) as usize).min(rows);
+    let mut py_hi = (((y_hi - min[1]) / sy * rows as f32).ceil().max(0.0) as usize).min(rows);
+    // Keep whole sub-scanline pairs together so the two samples of a pixel row
+    // are always accumulated and scaled as a unit.
+    py_lo &= !(sub - 1);
+    py_hi = (py_hi + sub - 1) & !(sub - 1);
+    py_hi = py_hi.min(rows);
+    if py_hi <= py_lo {
+        return;
+    }
+    let owned_rows = py_hi - py_lo;
+    let mut counts = vec![0u8; w * owned_rows];
+
+    // Sweep the segments in y instead of testing every segment on every
+    // scanline: each one is added when its lower end is reached and dropped
+    // once its upper end is passed.
+    let lo = |s: &Seg| s.a[1].min(s.b[1]);
+    let hi = |s: &Seg| s.a[1].max(s.b[1]);
+    let mut order: Vec<usize> = (0..layer.segs.len()).collect();
+    order.sort_by(|&a, &b| lo(&layer.segs[a]).total_cmp(&lo(&layer.segs[b])));
+    let mut next = 0usize;
+    let mut active: Vec<usize> = Vec::new();
     let mut xs: Vec<(f32, i32)> = Vec::new();
-    for py in 0..h * sub {
-        let wy = min[1] + (py as f32 + 0.5) / (h * sub) as f32 * sy;
+    for py in py_lo..py_hi {
+        let wy = min[1] + (py as f32 + 0.5) / rows as f32 * sy;
+        while next < order.len() && lo(&layer.segs[order[next]]) <= wy {
+            active.push(order[next]);
+            next += 1;
+        }
+        active.retain(|&i| hi(&layer.segs[i]) >= wy);
         xs.clear();
-        for s in &layer.segs {
+        for &i in &active {
+            let s = &layer.segs[i];
             let (ay, by) = (s.a[1], s.b[1]);
             if (ay <= wy) != (by <= wy) {
                 let denom = by - ay;
@@ -188,7 +229,7 @@ pub fn fill_mask(
             continue;
         }
         xs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        let row = py / sub;
+        let row = py - py_lo;
         // non-zero winding: fill wherever the winding count is anything but 0
         let mut wind = 0i32;
         let mut span: Option<f32> = None;
@@ -208,9 +249,16 @@ pub fn fill_mask(
             fill_span(&mut counts, row, w, min[0], sx, x0w, min[0] + sx);
         }
     }
-    let total = sub as u16;
-    for i in 0..w * h {
-        out[i] = ((counts[i] as u16 * 255) / total).min(255) as u8;
+    let mut out_row = py_lo / sub;
+    let mut src = 0usize;
+    while src + 2 * w <= counts.len() {
+        let dst = out_row * w;
+        for px in 0..w {
+            let sum = counts[src + px] as u16 + counts[src + w + px] as u16;
+            out[dst + px] = (sum * 255 / sub as u16).min(255) as u8;
+        }
+        src += w * sub;
+        out_row += 1;
     }
 }
 
