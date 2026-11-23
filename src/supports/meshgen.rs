@@ -59,6 +59,10 @@ pub fn frustum(a: Vec3, ra: f32, b: Vec3, rb: f32, sides: usize) -> Mesh {
         m.tris.push([ca, a_j, a_i]);
         m.tris.push([cb, b_i, b_j]);
     }
+    // The side winding follows the axis direction: a frustum built downwards
+    // ends up inside-out relative to one built upwards. Left alone, overlapping
+    // pieces cancel in the non-zero fill and joints come out as hollow rings.
+    m.fix_winding();
     m
 }
 
@@ -82,7 +86,10 @@ pub fn ball(centre: Vec3, radius: f32, sides: usize) -> Mesh {
     m.verts.push(centre - Vec3::new(0.0, 0.0, r));
     let at = |ring: usize, i: usize| -> u32 { 1 + ((ring - 1) * sides + (i % sides)) as u32 };
     for i in 0..sides {
-        m.tris.push([0, at(1, i), at(1, i + 1)]);
+        // Keep the top fan consistent with the middle bands. Winding just this
+        // fan the other way leaves the sphere mixed, so `fix_winding` cannot
+        // repair it and a sliced ball comes out as a ring.
+        m.tris.push([0, at(1, i + 1), at(1, i)]);
     }
     for ring in 1..rings - 1 {
         for i in 0..sides {

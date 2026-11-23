@@ -1113,3 +1113,22 @@ fn supplied_body_has_complete_connected_supports_at_45_degrees() {
         );
     }
 }
+
+#[test]
+fn a_ball_slices_to_a_solid_disk() {
+    use crate::slicer;
+
+    let ball = meshgen::ball(Vec3::new(0.0, 0.0, 3.7), 0.3, 12);
+    let sliced = slicer::slice(std::slice::from_ref(&ball), 0.05);
+    let layer = &sliced.layers[74];
+    let (w, h) = (101, 101);
+    let mut mask = vec![0u8; w * h];
+    slicer::fill_mask(layer, [-0.5, -0.5], [0.5, 0.5], w, h, &mut mask);
+
+    // Every triangle must wind the same way. If the pole fans disagree with
+    // the middle bands, non-zero filling cancels the centre and leaves a ring.
+    assert_ne!(mask[50 * w + 50], 0, "ball centre must be solid");
+    assert_ne!(mask[50 * w + 35], 0, "ball interior must be solid");
+    assert_ne!(mask[65 * w + 50], 0, "ball interior must be solid");
+    assert_eq!(mask[0], 0, "outside the ball must stay empty");
+}

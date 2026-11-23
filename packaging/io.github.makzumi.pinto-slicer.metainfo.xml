@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.7/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.8/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,18 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.8" date="2026-11-23">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.8</url>
+      <description>
+        <p>Responsive slicing feedback and solid cross-sections.</p>
+        <ul>
+          <li>Animated working status while supports are generated, the plate is sliced, or a job is exported</li>
+          <li>Slicing runs in the background instead of freezing the window</li>
+          <li>Filled 3D cross-sections and no more hollow ball or tube supports</li>
+          <li>Opening a project no longer generates supports without being asked</li>
         </ul>
       </description>
     </release>

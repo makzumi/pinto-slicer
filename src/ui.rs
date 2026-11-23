@@ -27,6 +27,78 @@ use crate::supports::{
     self, bvh::Bvh, meshgen, tips, ContactShape, Preset, SupportModel, TipShape,
 };
 
+/// Turn a binary layer mask into a flat cap mesh: one quad per horizontal run
+/// of lit texels. Runs keep holes open and are cheap even on a full plate.
+fn cap_mesh_from_mask(
+    mask: &[u8],
+    w: usize,
+    h: usize,
+    min: [f32; 2],
+    max: [f32; 2],
+    z: f32,
+) -> Mesh {
+    let mut m = Mesh {
+        name: "cross-section".into(),
+        ..Default::default()
+    };
+    if w == 0 || h == 0 || mask.len() < w * h {
+        return m;
+    }
+    let sx = (max[0] - min[0]).max(1e-6);
+    let sy = (max[1] - min[1]).max(1e-6);
+    for row in 0..h {
+        let y0 = min[1] + row as f32 / h as f32 * sy;
+        let y1 = min[1] + (row + 1) as f32 / h as f32 * sy;
+        let mut col = 0;
+        while col < w {
+            while col < w && mask[row * w + col] == 0 {
+                col += 1;
+            }
+            if col == w {
+                break;
+            }
+            let start = col;
+            while col < w && mask[row * w + col] != 0 {
+                col += 1;
+            }
+            let x0 = min[0] + start as f32 / w as f32 * sx;
+            let x1 = min[0] + col as f32 / w as f32 * sx;
+            let base = m.verts.len() as u32;
+            m.verts.push(Vec3::new(x0, y0, z));
+            m.verts.push(Vec3::new(x1, y0, z));
+            m.verts.push(Vec3::new(x1, y1, z));
+            m.verts.push(Vec3::new(x0, y1, z));
+            m.tris.push([base, base + 1, base + 2]);
+            m.tris.push([base, base + 2, base + 3]);
+        }
+    }
+    m
+}
+
+/// Grow a layer mask by one texel in every direction. Support tips and balls
+/// are only a few pixels across in the preview raster; without this their cap
+/// can sit just inside the shell and leave a thin ring of the inside visible.
+fn grow_mask(mask: &[u8], w: usize, h: usize) -> Vec<u8> {
+    let mut out = mask.to_vec();
+    for row in 0..h {
+        for col in 0..w {
+            if mask[row * w + col] == 0 {
+                continue;
+            }
+            for dr in -1_i32..=1 {
+                for dc in -1_i32..=1 {
+                    let r = row as i32 + dr;
+                    let c = col as i32 + dc;
+                    if r >= 0 && c >= 0 && (r as usize) < h && (c as usize) < w {
+                        out[r as usize * w + c as usize] = 1;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 // ------------------------------------------------------------------ palette
 
 const BG: egui::Color32 = egui::Color32::from_rgb(23, 25, 30);
@@ -474,6 +546,10 @@ pub struct App {
     /// Red overhang faces and island markers in the view.
     show_debug: bool,
     slice: Option<SliceResult>,
+    /// A slice running on a worker thread, so the window can keep painting.
+    slice_job: Option<Receiver<SliceResult>>,
+    /// The plate revision that slice run was asked for.
+    slice_job_for: Option<u64>,
     slice_gen: u64,
     mode: ViewMode,
     tab: Tab,
@@ -530,9 +606,6 @@ pub struct App {
     slice_for: Option<u64>,
     /// The revision a worker run was asked for, while it is still working.
     pending: Option<u64>,
-    /// An export was asked for while the plate had no supports. Grow them
-    /// first, then continue the export with the result.
-    export_after_supports: bool,
     screenshot: Option<PathBuf>,
     frame_no: u64,
     shot_sent: bool,
@@ -579,6 +652,8 @@ impl App {
             support_note: String::new(),
             show_debug: false,
             slice: None,
+            slice_job: None,
+            slice_job_for: None,
             slice_gen: 0,
             mode: ViewMode::Solid,
             tab: Tab::Prepare,
@@ -622,7 +697,6 @@ impl App {
             supports_for: None,
             slice_for: None,
             pending: None,
-            export_after_supports: false,
             screenshot,
             frame_no: 0,
             shot_sent: false,
@@ -1165,7 +1239,8 @@ impl App {
             self.support_mesh = Mesh::default();
             self.supports_for = None;
             self.support_note = if self.settings.supports.enabled && !self.models.is_empty() {
-                "Rebuilding supports from the project settings…".into()
+                "Supports are not stored in projects — click Generate Supports to rebuild them."
+                    .into()
             } else {
                 "Supports are off for this project.".into()
             };
@@ -1183,13 +1258,6 @@ impl App {
         self.layer_tex_key = None;
         if opening {
             self.fit_view();
-            // Supports are derived data, so a project file cannot carry them.
-            // Rebuild them from the saved settings instead of leaving the
-            // plate silently unsupported (and exporting a bare model).
-            if self.settings.supports.enabled && !self.models.is_empty() {
-                self.start_supports();
-                self.support_note = "Rebuilding supports from the project settings…".into();
-            }
         }
     }
 
@@ -1456,6 +1524,55 @@ impl App {
         self.slice_for = Some(self.revision);
     }
 
+    /// Slice on a worker thread so a heavy plate does not freeze the window.
+    /// The old layer stack stays visible until the new one arrives.
+    fn start_slice(&mut self) {
+        let mut all = self.world.clone();
+        if !self.support_mesh.tris.is_empty() {
+            all.push(self.support_mesh.clone());
+        }
+        let height = self.settings.layer_height;
+        let at = self.revision;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(slicer::slice(&all, height));
+        });
+        self.slice_job = Some(rx);
+        self.slice_job_for = Some(at);
+    }
+
+    /// Pick up a finished slice run.
+    fn poll_slice(&mut self, ctx: &egui::Context) {
+        let Some(rx) = self.slice_job.take() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(slice) => {
+                self.slice_for = self.slice_job_for.take();
+                self.install_slice(slice);
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
+                self.slice_job = Some(rx);
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.slice_job_for = None;
+                self.status = "Slicing stopped unexpectedly.".into();
+            }
+        }
+    }
+
+    fn install_slice(&mut self, slice: SliceResult) {
+        self.slice = Some(slice);
+        self.slice_gen += 1;
+        let n = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
+        if self.current_layer >= n {
+            self.current_layer = n.saturating_sub(1);
+        }
+        self.layer_tex = None;
+        self.layer_tex_key = None;
+    }
+
     /// Throw the grown supports away and slice the bare plate.
     fn clear_supports(&mut self) {
         let _ = self.support_job.take();
@@ -1515,18 +1632,15 @@ impl App {
     /// so overlaps are joined by the non-zero fill rather than by cutting
     /// anything.
     fn reslice(&mut self) {
+        // A synchronous slice supersedes any worker still running.
+        self.slice_job = None;
+        self.slice_job_for = None;
         let mut all = self.world.clone();
         if !self.support_mesh.tris.is_empty() {
             all.push(self.support_mesh.clone());
         }
-        self.slice = Some(slicer::slice(&all, self.settings.layer_height));
-        self.slice_gen += 1;
-        let n = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
-        if self.current_layer >= n {
-            self.current_layer = n.saturating_sub(1);
-        }
-        self.layer_tex = None;
-        self.layer_tex_key = None;
+        let slice = slicer::slice(&all, self.settings.layer_height);
+        self.install_slice(slice);
     }
 
     /// Pick up a finished generation run.
@@ -1556,10 +1670,7 @@ impl App {
             // The run answered for a particular plate; if that has changed
             // since, the window says so instead of pretending otherwise.
             self.supports_for = self.pending.take();
-            self.slice_now();
-            if self.export_after_supports {
-                self.start_export(ctx);
-            }
+            self.start_slice();
         }
     }
 
@@ -1942,6 +2053,11 @@ impl App {
         if done {
             self.export.rx = None;
             self.export.cancel = None;
+        } else if self.export.rx.is_some() {
+            // Export progress arrives on a worker channel. Without a scheduled
+            // repaint the UI only wakes for input, so the bar would stand still
+            // until the pointer moved.
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         }
     }
 
@@ -1955,19 +2071,17 @@ impl App {
 
     fn start_export(&mut self, ctx: &egui::Context) {
         // Supports are part of the print, but they are not stored in a project
-        // file. If the plate has none (a fresh project, or a project opened
-        // without rebuilding them), grow them before slicing the job. The
-        // flag lets the finished run come back through this function once.
-        if self.settings.supports.enabled && self.support.is_empty() && !self.export_after_supports
-        {
-            self.export_after_supports = true;
-            if self.support_job.is_none() {
-                self.start_supports();
-            }
-            self.export.result = "Growing supports first, then the export will start.".into();
+        // file. Never grow them behind the user's back: if they were not made
+        // for this plate, say so and let Generate Supports do it.
+        if self.settings.supports.enabled && self.supports_for != Some(self.geometry_revision) {
+            self.export.result = if self.support_job.is_some() {
+                "Supports are still being generated — wait for them to finish, then export.".into()
+            } else {
+                "Supports are not generated for this plate — click Generate Supports, then export."
+                    .into()
+            };
             return;
         }
-        self.export_after_supports = false;
         // The layers in memory only describe the plate they were made from.
         if self.out_of_date() {
             self.export.result =
@@ -2215,7 +2329,20 @@ impl App {
             )
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.label(egui::RichText::new(&self.status).size(12.0).color(MUTED));
+                    let busy = if self.support_job.is_some() {
+                        Some("Growing supports…")
+                    } else if self.slice_job.is_some() {
+                        Some("Slicing…")
+                    } else if self.export.rx.is_some() {
+                        Some("Exporting…")
+                    } else {
+                        None
+                    };
+                    if let Some(label) = busy {
+                        busy_indicator(ui, label);
+                    } else {
+                        ui.label(egui::RichText::new(&self.status).size(12.0).color(MUTED));
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             egui::RichText::new(self.printers[self.printer_idx].name.clone())
@@ -2993,11 +3120,7 @@ impl App {
                 );
             }
             if self.support_job.is_some() {
-                ui.label(
-                    egui::RichText::new("Growing supports…")
-                        .size(11.5)
-                        .color(ACCENT),
-                );
+                busy_indicator(ui, "Growing supports…");
             } else if !self.settings.supports.enabled {
                 ui.label(
                     egui::RichText::new("Supports are switched off, so nothing is grown.")
@@ -3048,7 +3171,7 @@ impl App {
             }
 
             ui.add_space(4.0);
-            let can_grow = self.settings.supports.enabled;
+            let can_grow = self.settings.supports.enabled && self.support_job.is_none();
             let grown = !self.support.is_empty();
             ui.horizontal(|ui| {
                 ui.add_enabled_ui(can_grow, |ui| {
@@ -3535,9 +3658,18 @@ impl App {
         });
 
         card(ui, "SLICE", |ui| {
-            if accent_button(ui, "Slice now", ui.available_width()) {
-                self.slice_now();
-                self.mode = ViewMode::Sliced;
+            let slicing = self.slice_job.is_some();
+            let growing = self.support_job.is_some();
+            ui.add_enabled_ui(!slicing && !growing, |ui| {
+                if accent_button(ui, "Slice now", ui.available_width()) {
+                    self.start_slice();
+                    self.mode = ViewMode::Sliced;
+                }
+            });
+            if slicing {
+                busy_indicator(ui, "Slicing…");
+            } else if growing {
+                busy_indicator(ui, "Growing supports…");
             }
             if self.slice_stale() {
                 ui.label(
@@ -3641,6 +3773,19 @@ impl App {
         let mut buf = Vec::new();
         slicer::fill_mask(layer, min, max, w, h, &mut buf);
         Some(buf)
+    }
+
+    /// A flat mesh covering every lit texel of the current layer. Drawn at the
+    /// cut plane, it gives a cross-section a solid face instead of showing the
+    /// inside of the model and support shells.
+    fn cut_cap_mesh(&self, cut: f32) -> Option<Mesh> {
+        let build = self.printers[self.printer_idx].build;
+        let w = 768usize;
+        let h = ((w as f32 * build[1] / build[0].max(1.0)).round() as usize).clamp(1, 2048);
+        let mask = grow_mask(&self.layer_mask(w, h)?, w, h);
+        let min = [-build[0] * 0.5, -build[1] * 0.5];
+        let max = [build[0] * 0.5, build[1] * 0.5];
+        Some(cap_mesh_from_mask(&mask, w, h, min, max, cut + 0.002))
     }
 
     fn layer_preview(&mut self, ui: &mut egui::Ui) {
@@ -3965,10 +4110,12 @@ impl App {
                     debug: self.show_debug,
                 };
                 if self.picture.as_ref().is_none_or(|p| p.key != key) {
+                    let cut_cap = cut.and_then(|cut| self.cut_cap_mesh(cut));
                     let scene = Scene {
                         models: &self.world,
                         selection: self.selection.pieces(),
                         support_mesh: Some(&self.support_mesh),
+                        cut_cap: cut_cap.as_ref(),
                         overhang: if self.show_debug {
                             Some(&self.support.debug_mesh)
                         } else {
@@ -4490,6 +4637,7 @@ impl eframe::App for App {
         }
         self.poll_export(ctx);
         self.poll_supports(ctx);
+        self.poll_slice(ctx);
         self.poll_project();
         self.poll_picker(ctx);
         self.poll_dropped_files(ctx);
@@ -4513,6 +4661,16 @@ impl eframe::App for App {
 }
 
 // ------------------------------------------------------------------ widgets
+
+/// A small animated state line for work that runs off the UI thread.
+fn busy_indicator(ui: &mut egui::Ui, label: &str) {
+    ui.horizontal(|ui| {
+        ui.add(egui::Spinner::new().size(14.0).color(ACCENT));
+        ui.label(egui::RichText::new(label).size(11.5).color(ACCENT));
+    });
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(50));
+}
 
 /// Finish a numeric scale edit. In uniform mode the axis that actually changed
 /// supplies the value for all three axes; the other fields keep their old values
@@ -6012,6 +6170,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_cut_cap_fills_lit_runs_and_leaves_gaps_open() {
+        // 5x2 mask: one short run on the first row, one full run on the second.
+        let mask = [0u8, 1, 1, 0, 0, 1, 1, 1, 1, 1];
+        let cap = super::cap_mesh_from_mask(&mask, 5, 2, [0.0, 0.0], [5.0, 2.0], 1.0);
+        assert_eq!(cap.tris.len(), 4, "two runs need two quads");
+        assert!(cap.verts.iter().all(|v| v.z == 1.0));
+        // Every triangle lies in the cut plane and the total area is the lit area.
+        let mut area = 0.0;
+        for t in &cap.tris {
+            let a = cap.verts[t[0] as usize];
+            let b = cap.verts[t[1] as usize];
+            let c = cap.verts[t[2] as usize];
+            area += ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs() * 0.5;
+        }
+        // One texel is one unit here: row 0 covers 2, row 1 covers 5.
+        assert!((area - 7.0).abs() < 1e-5, "cap area was {area}");
+    }
+
+    #[test]
+    fn an_empty_layer_makes_an_empty_cut_cap() {
+        let cap = super::cap_mesh_from_mask(&[0; 8], 4, 2, [0.0, 0.0], [4.0, 2.0], 0.0);
+        assert!(cap.tris.is_empty());
+        assert!(cap.verts.is_empty());
+    }
+
+    #[test]
+    fn growing_a_cap_mask_covers_the_texels_around_a_support() {
+        // One lit texel in the middle becomes a filled 3x3 block.
+        let mask = [0u8, 0, 0, 0, 1, 0, 0, 0, 0];
+        let grown = super::grow_mask(&mask, 3, 3);
+        assert_eq!(grown, [1u8; 9]);
+    }
+
     /// The window opens on an empty plate; the sample scene is opt-in, so a
     /// launch never has pieces nobody asked for.
     #[test]
@@ -6042,6 +6234,27 @@ mod tests {
             .layer_mask(40, 20)
             .expect("a cut plate has a layer to show");
         assert_eq!(mask.len(), 40 * 20);
+    }
+
+    /// Slicing runs on a worker so the status line can animate; when the
+    /// worker answers, its layers must become the current slice.
+    #[test]
+    fn a_worker_slice_installs_its_layers_and_marks_the_plate_current() {
+        let mut app = app_with_a_piece();
+        let stamp = app.revision;
+        app.start_slice();
+        assert!(app.slice_job.is_some(), "the button must start a worker");
+
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.slice_job.is_some() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            app.poll_slice(&ctx);
+        }
+
+        assert!(app.slice_job.is_none(), "worker did not finish");
+        assert_eq!(app.slice_for, Some(stamp));
+        assert!(!app.slice.as_ref().unwrap().layers.is_empty());
     }
 
     /// Press, drag and release on a drawn handle, through the same input layer
@@ -6254,24 +6467,26 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_project_regrows_supports_instead_of_leaving_them_behind() {
+    fn opening_a_project_does_not_start_supports_by_itself() {
         let mut app = app_with_a_piece();
         app.start_supports_and_wait();
         let saved = app.project();
         let mut opened = App::new(Launch::default());
         opened.restore_project(saved, true);
         assert!(
-            opened.support_job.is_some() || !opened.support.is_empty(),
-            "opening a supported project must start a support run"
+            opened.support.is_empty() && opened.support_mesh.tris.is_empty(),
+            "a project does not carry supports, and opening must not grow them"
         );
-        assert!(opened.support_note.contains("Rebuilding"));
-        opened.cancel_support_run();
+        assert!(
+            opened.support_job.is_none(),
+            "opening must leave support generation to Generate Supports"
+        );
+        assert!(opened.support_note.contains("Generate Supports"));
     }
 
     #[test]
-    fn an_export_without_supports_grows_them_before_starting() {
+    fn exporting_without_generated_supports_asks_for_them() {
         let mut app = app_with_a_piece();
-        app.export_after_supports = false;
         app.support.clear();
         app.support_mesh = Mesh::default();
         app.supports_for = None;
@@ -6280,17 +6495,14 @@ mod tests {
         let ctx = egui::Context::default();
         app.start_export(&ctx);
         assert!(
-            app.export_after_supports,
-            "the export must wait for a support run"
-        );
-        assert!(
-            app.support_job.is_some() || !app.support.is_empty(),
-            "a support run must have been started"
+            app.support_job.is_none(),
+            "exporting must not generate supports behind the user's back"
         );
         assert!(
             app.export.rx.is_none(),
-            "the job must not be written before the supports exist"
+            "the job must not be written without generated supports"
         );
+        assert!(app.export.result.contains("Generate Supports"));
     }
 
     #[test]
@@ -6526,6 +6738,7 @@ mod cost {
                 models: &app.world,
                 selection: &[],
                 support_mesh: None,
+                cut_cap: None,
                 overhang: None,
                 islands: &[],
                 build,

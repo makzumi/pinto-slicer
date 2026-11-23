@@ -53,6 +53,7 @@ pub struct SceneRevision {
 enum MeshKey {
     Model(usize, u64),
     Support(u64),
+    CutCap(u64, usize),
     Overhang(u64),
 }
 
@@ -662,6 +663,21 @@ impl GpuRenderer {
             });
             calls.push((key, uniform_index));
         }
+        if let Some(mesh) = scene.cut_cap.filter(|mesh| !mesh.tris.is_empty()) {
+            let key = MeshKey::CutCap(revision.derived, scene.current_layer);
+            if let std::collections::hash_map::Entry::Vacant(entry) = self.meshes.entry(key) {
+                entry.insert(GpuMesh::new(device, mesh));
+                self.upload_count += 1;
+            }
+            let uniform_index = draw_uniforms.len() as u32;
+            draw_uniforms.push(DrawUniform {
+                // A cut face has to read as filled material. The old dark
+                // brown cap read as a hole at the top of every support.
+                base: color([205, 197, 188]),
+                params: [0.0, 0.0, height, 0.0],
+            });
+            calls.push((key, uniform_index));
+        }
         if let Some(mesh) = scene.overhang.filter(|mesh| !mesh.tris.is_empty()) {
             let key = MeshKey::Overhang(revision.derived);
             if let std::collections::hash_map::Entry::Vacant(entry) = self.meshes.entry(key) {
@@ -679,6 +695,11 @@ impl GpuRenderer {
             MeshKey::Model(..) => calls.iter().any(|(wanted, _)| wanted == key),
             MeshKey::Support(version) => {
                 scene.support_mesh.is_some() && *version == revision.derived
+            }
+            MeshKey::CutCap(version, layer) => {
+                scene.cut_cap.is_some()
+                    && *version == revision.derived
+                    && *layer == scene.current_layer
             }
             MeshKey::Overhang(version) => scene.overhang.is_some() && *version == revision.derived,
         });
@@ -1309,6 +1330,7 @@ mod tests {
             models: &[],
             selection: &[],
             support_mesh: None,
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [100.0, 100.0, 100.0],
@@ -1348,6 +1370,7 @@ mod tests {
             models: &models,
             selection: &[],
             support_mesh: None,
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [218.88, 122.88, 200.0],
@@ -1410,6 +1433,7 @@ mod tests {
             models: &models,
             selection: &[],
             support_mesh: None,
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [218.88, 122.88, 200.0],
@@ -1467,6 +1491,7 @@ mod tests {
             models: &models,
             selection: &[],
             support_mesh: None,
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [218.88, 122.88, 200.0],
@@ -1538,6 +1563,7 @@ mod tests {
             models: &[],
             selection: &[],
             support_mesh: Some(&mesh),
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [218.88, 122.88, 200.0],
@@ -1604,6 +1630,7 @@ mod tests {
             models: &[],
             selection: &[],
             support_mesh: None,
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [218.88, 122.88, 200.0],
@@ -1654,6 +1681,7 @@ mod tests {
             models: &[],
             selection: &[],
             support_mesh: Some(&support),
+            cut_cap: None,
             overhang: None,
             islands: &[],
             build: [218.88, 122.88, 200.0],

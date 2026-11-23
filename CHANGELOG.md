@@ -4,6 +4,24 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-23
+
+### Added
+
+- A spinner and **Working…** status while supports are generated, the plate is sliced, or a job is exported. Slicing now runs in the background, so the window keeps repainting instead of freezing until the layers are ready.
+- The 3D cross-section fills the cut face at the current layer, so supports and models read as solid instead of open shells.
+
+### Changed
+
+- Opening a project no longer generates supports by itself. The plate opens as saved and the support note asks you to press **Generate Supports**.
+- Export refuses to write a job until supports have been generated for the current plate, instead of growing them silently.
+
+### Fixed
+
+- Tube and ball supports no longer look hollow in the slice preview: the sphere mesh had mixed triangle winding, which cancelled the interior of its cross-section and left a ring.
+- The export progress bar advances without moving the mouse, and the support spinner keeps animating while generation runs.
+- Support status buttons are disabled while a run is active, so a second click cannot start a competing job.
+
 ## [0.1.7] - 2026-11-22
 
 ### Fixed
@@ -90,7 +108,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.8
 [0.1.7]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.7
 [0.1.6]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.6
 [0.1.5]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.5

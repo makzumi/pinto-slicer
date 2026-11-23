@@ -176,6 +176,9 @@ pub struct Scene<'a> {
     pub selection: &'a [usize],
     /// The drawn shape of the supports (cones, branches, trunks and plate).
     pub support_mesh: Option<&'a Mesh>,
+    /// A thin cap across the current cut, so a cross-section shows resin
+    /// instead of the inside of the shells.
+    pub cut_cap: Option<&'a Mesh>,
     /// Overhanging faces, drawn red when the debug switch is on.
     pub overhang: Option<&'a Mesh>,
     /// Island markers.
