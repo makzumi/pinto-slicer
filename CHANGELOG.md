@@ -4,6 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-22
+
+### Fixed
+
+- Layer heights are quantized to three decimal places before export, so CXDLPv4 jobs are accepted by UVtools instead of failing on values such as `0.049999997 mm`.
+
 ## [0.1.4] - 2026-11-22
 
 ### Added
@@ -63,7 +69,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.5
 [0.1.4]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.4
 [0.1.3]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.3
 [1.0.2]: https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2
