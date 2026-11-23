@@ -1,6 +1,6 @@
 [package]
 name = "pinto_slicer"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "Pinto Slicer: a resin 3D printer slicer built with Rust, egui and wgpu"
 license = "AGPL-3.0-only"

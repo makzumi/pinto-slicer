@@ -148,6 +148,7 @@ impl GpuLineBuffer {
 struct SliceLines {
     revision: u64,
     current_layer: usize,
+    cross_section: bool,
     other: Option<GpuLineBuffer>,
     current: Option<GpuLineBuffer>,
 }
@@ -624,6 +625,7 @@ impl GpuRenderer {
                 dynamic_mesh(positions, indices, base, &mut dynamics, &mut draw_uniforms);
             }
         }
+        let cut = scene.cut.unwrap_or(0.0);
         if scene.mode == crate::render::ViewMode::Solid {
             for (index, mesh) in scene.models.iter().enumerate() {
                 if mesh.tris.is_empty() {
@@ -634,15 +636,15 @@ impl GpuRenderer {
                     entry.insert(GpuMesh::new(device, mesh));
                     self.upload_count += 1;
                 }
-                let base = if scene.selection.contains(&index) {
-                    crate::render::PIECE_PICKED
-                } else {
-                    crate::render::PIECE
-                };
                 let uniform_index = draw_uniforms.len() as u32;
+                let picked = scene.selection.contains(&index);
                 draw_uniforms.push(DrawUniform {
-                    base: color(base),
-                    params: [1.0, 0.0, height, 0.0],
+                    base: color(if picked {
+                        crate::render::PIECE_PICKED
+                    } else {
+                        crate::render::PIECE
+                    }),
+                    params: [1.0, 0.0, height, cut],
                 });
                 calls.push((key, uniform_index));
             }
@@ -656,7 +658,7 @@ impl GpuRenderer {
             let uniform_index = draw_uniforms.len() as u32;
             draw_uniforms.push(DrawUniform {
                 base: color([158, 164, 176]),
-                params: [1.0, 1.0, height, 0.0],
+                params: [1.0, 1.0, height, cut],
             });
             calls.push((key, uniform_index));
         }
@@ -779,11 +781,13 @@ impl GpuRenderer {
         }
         let plate_buffer =
             (!plate_lines.is_empty()).then(|| GpuLineBuffer::new(device, &plate_lines));
-        if scene.mode == crate::render::ViewMode::Sliced {
+        let cross_section = scene.mode == crate::render::ViewMode::Solid && scene.cut.is_some();
+        if scene.mode == crate::render::ViewMode::Sliced || cross_section {
             if let Some(slice) = scene.slice {
                 let rebuild = self.slice_lines.as_ref().is_none_or(|cached| {
                     cached.revision != revision.derived
                         || cached.current_layer != scene.current_layer
+                        || cached.cross_section != cross_section
                 });
                 if rebuild {
                     self.slice_rebuilds += 1;
@@ -795,27 +799,36 @@ impl GpuRenderer {
                     let total: usize = shown.iter().map(|i| slice.layers[*i].segs.len()).sum();
                     let seg_stride = (total / 60_000).max(1);
                     let mut other = Vec::new();
-                    for &index in &shown {
-                        if index == scene.current_layer {
-                            continue;
-                        }
-                        let layer = &slice.layers[index];
-                        for segment in layer.segs.iter().step_by(seg_stride) {
-                            other.push(LineInstance::new(
-                                Vec3::new(segment.a[0], segment.a[1], layer.z),
-                                Vec3::new(segment.b[0], segment.b[1], layer.z),
-                                [122, 74, 74],
-                                1.0,
-                                1.001,
-                            ));
+                    if !cross_section {
+                        for &index in &shown {
+                            if index == scene.current_layer {
+                                continue;
+                            }
+                            let layer = &slice.layers[index];
+                            for segment in layer.segs.iter().step_by(seg_stride) {
+                                other.push(LineInstance::new(
+                                    Vec3::new(segment.a[0], segment.a[1], layer.z),
+                                    Vec3::new(segment.b[0], segment.b[1], layer.z),
+                                    [122, 74, 74],
+                                    1.0,
+                                    1.001,
+                                ));
+                            }
                         }
                     }
                     let mut current = Vec::new();
                     if let Some(layer) = slice.layers.get(scene.current_layer) {
+                        // In the 3D view the contour sits on the cut plane,
+                        // not at the middle of the layer it came from.
+                        let z = if cross_section {
+                            scene.cut.unwrap_or(layer.z) + 0.01
+                        } else {
+                            layer.z
+                        };
                         for segment in layer.segs.iter().step_by(seg_stride.clamp(1, 6)) {
                             current.push(LineInstance::new(
-                                Vec3::new(segment.a[0], segment.a[1], layer.z),
-                                Vec3::new(segment.b[0], segment.b[1], layer.z),
+                                Vec3::new(segment.a[0], segment.a[1], z),
+                                Vec3::new(segment.b[0], segment.b[1], z),
                                 [233, 86, 74],
                                 1.6,
                                 1.15,
@@ -825,6 +838,7 @@ impl GpuRenderer {
                     self.slice_lines = Some(SliceLines {
                         revision: revision.derived,
                         current_layer: scene.current_layer,
+                        cross_section,
                         other: (!other.is_empty()).then(|| GpuLineBuffer::new(device, &other)),
                         current: (!current.is_empty())
                             .then(|| GpuLineBuffer::new(device, &current)),
@@ -1144,6 +1158,10 @@ fn vs_main(@location(0) position: vec3<f32>) -> VertexOut {
 
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    // A non-zero params.w is the layer the 3D cross-section is cut at.
+    if draw.params.w > 0.0 && in.world.z > draw.params.w {
+        discard;
+    }
     if draw.params.x < 0.5 {
         return linearize(draw.base);
     }
@@ -1297,6 +1315,7 @@ mod tests {
             mode: ViewMode::Solid,
             slice: None,
             current_layer: 0,
+            cut: None,
             show_plate: false,
         };
         let view = View::new(&Camera::default(), 64.0, 64.0);
@@ -1335,6 +1354,7 @@ mod tests {
             mode: ViewMode::Solid,
             slice: None,
             current_layer: 0,
+            cut: None,
             show_plate: false,
         };
         let view = View::new(&Camera::default(), 400.0, 300.0);
@@ -1379,6 +1399,63 @@ mod tests {
     }
 
     #[test]
+    fn picked_pieces_are_tinted() {
+        let Some((device, queue)) = headless_device() else {
+            eprintln!("no Vulkan adapter for the headless GPU test");
+            return;
+        };
+        let mut renderer = GpuRenderer::new(&device);
+        let models = vec![crate::mesh::sample_pawn()];
+        let mut scene = Scene {
+            models: &models,
+            selection: &[],
+            support_mesh: None,
+            overhang: None,
+            islands: &[],
+            build: [218.88, 122.88, 200.0],
+            mode: ViewMode::Solid,
+            slice: None,
+            current_layer: 0,
+            cut: None,
+            show_plate: false,
+        };
+        let view = View::new(&Camera::default(), 400.0, 300.0);
+        renderer.draw(
+            &device,
+            &queue,
+            &scene,
+            &view,
+            [400, 300],
+            SceneRevision::default(),
+        );
+        let plain = renderer.read_rgba(&device, &queue).unwrap();
+        let blue = |pixels: &[u8]| {
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[2] > p[0] + 20)
+                .count()
+        };
+        let before = blue(&plain);
+        scene.selection = &[0];
+        renderer.draw(
+            &device,
+            &queue,
+            &scene,
+            &view,
+            [400, 300],
+            SceneRevision::default(),
+        );
+        let picked = renderer.read_rgba(&device, &queue).unwrap();
+        assert!(
+            blue(&picked) > before + 100,
+            "picked pawn should turn blue: {before} -> {}",
+            blue(&picked)
+        );
+    }
+
+    #[test]
     fn plate_and_shadow_geometry_render_on_the_gpu() {
         let Some((device, queue)) = headless_device() else {
             eprintln!("no Vulkan adapter for the headless GPU test");
@@ -1396,6 +1473,7 @@ mod tests {
             mode: ViewMode::Solid,
             slice: None,
             current_layer: 0,
+            cut: None,
             show_plate: true,
         };
         let view = View::new(&Camera::default(), 400.0, 300.0);
@@ -1466,6 +1544,7 @@ mod tests {
             mode: ViewMode::Solid,
             slice: None,
             current_layer: 0,
+            cut: None,
             show_plate: false,
         };
         let camera = Camera {
@@ -1531,6 +1610,7 @@ mod tests {
             mode: ViewMode::Sliced,
             slice: Some(&slice),
             current_layer,
+            cut: None,
             show_plate: false,
         };
         let view = View::new(&Camera::default(), 400.0, 300.0);
@@ -1580,6 +1660,7 @@ mod tests {
             mode: ViewMode::Solid,
             slice: None,
             current_layer: 0,
+            cut: None,
             show_plate: false,
         };
         let view = View::new(&Camera::default(), 400.0, 300.0);

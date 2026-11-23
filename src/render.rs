@@ -166,13 +166,13 @@ pub enum ViewMode {
     Sliced,
 }
 
-/// The colour every piece is drawn in, and the cool one for picked pieces.
+/// The colour every piece is drawn in.
 pub const PIECE: Rgb = [214, 202, 176];
 pub const PIECE_PICKED: Rgb = [130, 176, 244];
 
 pub struct Scene<'a> {
     pub models: &'a [Mesh],
-    /// The pieces the person picked, drawn lighter so they read as current.
+    /// Pieces highlighted as selected.
     pub selection: &'a [usize],
     /// The drawn shape of the supports (cones, branches, trunks and plate).
     pub support_mesh: Option<&'a Mesh>,
@@ -184,6 +184,9 @@ pub struct Scene<'a> {
     pub mode: ViewMode,
     pub slice: Option<&'a SliceResult>,
     pub current_layer: usize,
+    /// When set, geometry above this height is cut away so the model can be
+    /// revealed layer by layer in the 3D view.
+    pub cut: Option<f32>,
     pub show_plate: bool,
 }
 

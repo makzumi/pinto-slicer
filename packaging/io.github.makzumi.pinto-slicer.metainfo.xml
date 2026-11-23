@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.5/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.6/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.6" date="2026-11-22">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.6</url>
+      <description>
+        <p>Selection, slice-view, and control improvements.</p>
+        <ul>
+          <li>Progressive 3D cross-section that follows the layer slider</li>
+          <li>Responsive model highlighting with cached picking</li>
+          <li>Slice-tab 3D/Slices toggle and clearer Values dialog naming</li>
         </ul>
       </description>
     </release>

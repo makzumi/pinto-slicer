@@ -51,6 +51,37 @@ const AXIS_COL: [egui::Color32; 3] = [
     egui::Color32::from_rgb(112, 158, 236),
 ];
 
+/// Does the ray from `from` along `dir` enter the box at all? Used to skip
+/// pieces before touching their triangle trees.
+fn ray_hits_box(from: Vec3, dir: Vec3, min: Vec3, max: Vec3, limit: f32) -> bool {
+    let mut near = 0.0_f32;
+    let mut far = limit;
+    for (origin, delta, low, high) in [
+        (from.x, dir.x, min.x, max.x),
+        (from.y, dir.y, min.y, max.y),
+        (from.z, dir.z, min.z, max.z),
+    ] {
+        if delta.abs() < 1e-9 {
+            if origin < low || origin > high {
+                return false;
+            }
+            continue;
+        }
+        let inverse = 1.0 / delta;
+        let mut a = (low - origin) * inverse;
+        let mut b = (high - origin) * inverse;
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
+        near = near.max(a);
+        far = far.min(b);
+        if near > far {
+            return false;
+        }
+    }
+    true
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Prepare,
@@ -306,6 +337,10 @@ pub struct ModelEntry {
     placed: std::cell::RefCell<Option<(Transform, (Vec3, Vec3))>>,
     /// The transform and size `world` was last built from for this piece.
     world_for: Option<(Transform, usize, usize)>,
+    /// The piece's own triangle tree, in its untransformed space. Built on the
+    /// first click and kept across moves, turns and scales, because the tree
+    /// does not care where the piece is.
+    pick: std::cell::RefCell<Option<Arc<Bvh>>>,
 }
 
 impl ModelEntry {
@@ -319,6 +354,7 @@ impl ModelEntry {
             transform,
             placed: Default::default(),
             world_for: None,
+            pick: Default::default(),
         }
     }
 
@@ -333,6 +369,15 @@ impl ModelEntry {
         let box_ = self.mesh.transformed(&self.transform).bounds();
         *self.placed.borrow_mut() = Some((self.transform, box_));
         box_
+    }
+
+    /// The piece's tree, built once and reused until the mesh itself changes.
+    fn pick_tree(&self) -> Arc<Bvh> {
+        let mut slot = self.pick.borrow_mut();
+        slot.get_or_insert_with(|| {
+            Arc::new(Bvh::from_meshes(std::slice::from_ref(self.mesh.as_ref())))
+        })
+        .clone()
     }
 }
 
@@ -370,6 +415,14 @@ struct ExportState {
     result: String,
 }
 
+fn picked_fingerprint(picked: &[usize]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for &piece in picked {
+        hash = (hash ^ piece as u64).wrapping_mul(0x100_0000_01b3);
+    }
+    hash ^ (picked.len() as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
 /// What a drawn plate depends on. Two pictures with the same key are the same
 /// picture, so the texture is kept instead of being made again.
 #[derive(PartialEq)]
@@ -378,29 +431,21 @@ struct PictureKey {
     pixels: [u32; 2],
     cam: Camera,
     mode: ViewMode,
+    /// Whether the 3D picture is cut at the current layer.
+    cross_section: bool,
     layer: usize,
+    /// Which pieces are picked, so the tint is redrawn when that changes.
+    picked: u64,
     /// The pieces as they stand in world space.
     world: u64,
     /// The slice, which also stands for the supports in it.
     cut: u64,
-    /// Which pieces are picked, since they are shaded differently.
-    picked: u64,
     debug: bool,
 }
 
 struct Picture {
     key: PictureKey,
     tex: egui::TextureId,
-}
-
-/// A cheap answer to "are these the same pieces picked?".
-fn picked_fingerprint(pieces: &[usize]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for &p in pieces {
-        h ^= p as u64;
-        h = h.wrapping_mul(0x100_0000_01b3);
-    }
-    h
 }
 
 pub struct App {
@@ -428,11 +473,6 @@ pub struct App {
     support_note: String,
     /// Red overhang faces and island markers in the view.
     show_debug: bool,
-    /// Triangle index over the models, for clicking on them.
-    pick: Option<Bvh>,
-    /// One tree per piece, so a click names the piece it hit even when pieces
-    /// overlap in the view.
-    pick_parts: Option<Vec<Bvh>>,
     slice: Option<SliceResult>,
     slice_gen: u64,
     mode: ViewMode,
@@ -535,8 +575,6 @@ impl App {
             support_job: None,
             support_note: String::new(),
             show_debug: false,
-            pick: None,
-            pick_parts: None,
             slice: None,
             slice_gen: 0,
             mode: ViewMode::Solid,
@@ -719,15 +757,29 @@ impl App {
     fn click_in_view(&mut self, pos: egui::Pos2, w: f32, h: f32, additive: bool) {
         let view = render::View::new(&self.cam, w, h);
         let (from, dir) = view.ray(pos.x, pos.y);
-        if self.pick.is_none() {
-            self.pick = Some(Bvh::from_meshes(&self.world));
+        // Every piece owns a tree in its own space. The ray is moved into that
+        // space, so moving or turning a piece never invalidates its tree — the
+        // click that used to rebuild a whole-plate BVH now only tests boxes
+        // and walks the one or two trees the ray actually enters.
+        let mut best: Option<(usize, f32)> = None;
+        for (index, entry) in self.models.iter().enumerate() {
+            let (min, max) = entry.bounds();
+            if !ray_hits_box(from, dir, min, max, 1.0e5) {
+                continue;
+            }
+            let tree = entry.pick_tree();
+            let local_from = entry.transform.inverse_apply(from);
+            let local_dir = entry.transform.inverse_apply_dir(dir);
+            let Some((t, _)) = tree.ray_hit(local_from, local_dir, 1.0e5) else {
+                continue;
+            };
+            let hit = entry.transform.apply(local_from + local_dir * t);
+            let distance = (hit - from).length();
+            if best.is_none_or(|(_, nearest)| distance < nearest) {
+                best = Some((index, distance));
+            }
         }
-        let hit = match self.pick.as_ref() {
-            Some(tree) => tree.ray_hit(from, dir, 1.0e5),
-            None => return,
-        };
-        let piece = hit.and_then(|(t, _)| self.piece_at(from, dir, t));
-        self.selection.click(piece, additive);
+        self.selection.click(best.map(|(index, _)| index), additive);
     }
 
     fn refresh_world(&mut self) {
@@ -747,33 +799,7 @@ impl App {
             }
         }
         self.world_gen = self.world_gen.wrapping_add(1);
-        self.pick = None;
-        self.pick_parts = None;
         self.selection.prune(self.models.len());
-    }
-
-    /// Which piece owns the world point `p`, if any.
-    /// The piece whose surface the ray reached at `t`.
-    ///
-    /// A click always lands *on* a surface, so asking "is this point inside the
-    /// solid" cannot answer it — three rays from a point exactly on a triangle
-    /// give whatever parity the tolerance happens to produce, which is why
-    /// clicks used to pick nothing. Asking each piece's own tree for its
-    /// nearest hit is exact: the piece whose surface is the nearest one is the
-    /// piece that was clicked.
-    fn piece_at(&mut self, from: Vec3, dir: Vec3, t: f32) -> Option<usize> {
-        if self.pick_parts.is_none() {
-            self.pick_parts = Some(
-                self.world
-                    .iter()
-                    .map(|m| Bvh::from_meshes(std::slice::from_ref(m)))
-                    .collect(),
-            );
-        }
-        self.pick_parts.as_ref()?.iter().position(|tree| {
-            tree.ray_hit(from, dir, 1.0e5)
-                .is_some_and(|(hit, _)| (hit - t).abs() < 0.05)
-        })
     }
 
     /// The handles for the picked pieces, when the current tool has them.
@@ -1374,7 +1400,6 @@ impl App {
             self.touched();
         }
         self.refresh_world();
-        self.pick = None;
         // A new request supersedes any worker still using older geometry or
         // settings. Dropping the job sets its cancellation flag; otherwise an
         // old result could arrive later and overwrite the new support layout.
@@ -3374,6 +3399,28 @@ impl App {
 
     fn slice_tab(&mut self, ui: &mut egui::Ui) {
         let mut changed = false;
+        card(ui, "VIEW", |ui| {
+            let width = ((ui.available_width() - 6.0) * 0.5).max(50.0);
+            ui.horizontal(|ui| {
+                if pill_button(
+                    ui,
+                    "3D",
+                    self.mode == ViewMode::Solid,
+                    egui::vec2(width, 28.0),
+                ) {
+                    self.mode = ViewMode::Solid;
+                }
+                if pill_button(
+                    ui,
+                    "Slices",
+                    self.mode == ViewMode::Sliced,
+                    egui::vec2(width, 28.0),
+                ) {
+                    self.mode = ViewMode::Sliced;
+                }
+            });
+        });
+
         card(ui, "LAYER & EXPOSURE", |ui| {
             let slider_width = ui.available_width();
             let slider = |ui: &mut egui::Ui,
@@ -3859,6 +3906,17 @@ impl App {
                 }
 
                 let build = self.printers[self.printer_idx].build;
+                // On the slice tab the 3D view grows with the layer slider:
+                // everything above the top of the current layer is cut away,
+                // and the current contour is drawn on the cut.
+                let cut = if self.tab == Tab::Slice && self.mode == ViewMode::Solid {
+                    self.slice.as_ref().and_then(|slice| {
+                        let layer = slice.layers.get(self.current_layer)?;
+                        Some(layer.z + slice.layer_height * 0.5)
+                    })
+                } else {
+                    None
+                };
                 let pixels_per_point = ctx.pixels_per_point();
                 let key = PictureKey {
                     size: (w.max(64.0), h.max(64.0)),
@@ -3868,10 +3926,11 @@ impl App {
                     ],
                     cam: self.cam,
                     mode: self.mode,
+                    cross_section: cut.is_some(),
                     layer: self.current_layer,
+                    picked: picked_fingerprint(self.selection.pieces()),
                     world: self.world_gen,
                     cut: self.slice_gen,
-                    picked: picked_fingerprint(self.selection.pieces()),
                     debug: self.show_debug,
                 };
                 if self.picture.as_ref().is_none_or(|p| p.key != key) {
@@ -3893,6 +3952,7 @@ impl App {
                         mode: self.mode,
                         slice: self.slice.as_ref(),
                         current_layer: self.current_layer,
+                        cut,
                         show_plate: true,
                     };
                     let state = frame.wgpu_render_state().expect("wgpu is enabled");
@@ -4052,7 +4112,7 @@ impl App {
 
     /// The numbers for the selected piece, floating over the view so they can
     /// be read and typed into while a handle is being dragged.
-    /// Where the Transform window first opens. After that its position belongs
+    /// Where the Values window first opens. After that its position belongs
     /// to the user, and egui remembers the dragged location.
     fn values_default_pos(&self, ctx: &egui::Context) -> egui::Pos2 {
         let screen = ctx.screen_rect();
@@ -4077,7 +4137,7 @@ impl App {
         let mut placement_changed = false;
         let (mut snap, mut snap_deg) = (self.snap, self.snap_deg);
         let mut uniform_scale = self.uniform_scale;
-        egui::Window::new("Transform")
+        egui::Window::new("Values")
             .open(&mut open)
             .collapsible(true)
             .resizable(false)
@@ -5889,6 +5949,37 @@ mod tests {
         assert!(app.selection.is_empty());
     }
 
+    #[test]
+    fn picking_survives_moving_and_turning_a_piece() {
+        let mut app = app_with_a_piece();
+        app.refresh_world();
+        let view = render::View::new(&app.cam, 900.0, 700.0);
+        let click_piece = |app: &mut App, index: usize| {
+            let (min, max) = app.models[index].bounds();
+            let (sx, sy, _) = view
+                .project(layout::bounds_centre((min, max)))
+                .expect("the piece is in front of the camera");
+            app.click_in_view(egui::pos2(sx, sy), 900.0, 700.0, false);
+        };
+        click_piece(&mut app, 0);
+        assert_eq!(app.selection.pieces(), &[0]);
+        let first_tree = app.models[0].pick_tree();
+
+        app.models[0].transform.pos.x += 20.0;
+        app.refresh_world();
+        click_piece(&mut app, 0);
+        assert_eq!(app.selection.pieces(), &[0]);
+
+        app.models[0].transform.rot_deg.z += 25.0;
+        app.refresh_world();
+        click_piece(&mut app, 0);
+        assert_eq!(app.selection.pieces(), &[0]);
+        assert!(
+            Arc::ptr_eq(&first_tree, &app.models[0].pick_tree()),
+            "moving the piece must not rebuild its picking tree"
+        );
+    }
+
     /// The window opens on an empty plate; the sample scene is opt-in, so a
     /// launch never has pieces nobody asked for.
     #[test]
@@ -6325,6 +6416,7 @@ mod cost {
                 mode: ViewMode::Solid,
                 slice: None,
                 current_layer: 0,
+                cut: None,
                 show_plate: w > 64.0,
             };
             gpu.draw(

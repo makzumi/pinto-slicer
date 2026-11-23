@@ -219,6 +219,7 @@ pub fn run(path: &Path) -> Result<(), String> {
             mode: crate::render::ViewMode::Solid,
             slice: None,
             current_layer: 0,
+            cut: None,
             show_plate: true,
         };
         let t = Instant::now();
@@ -263,6 +264,7 @@ pub fn run(path: &Path) -> Result<(), String> {
         mode: crate::render::ViewMode::Solid,
         slice: None,
         current_layer: 0,
+        cut: None,
         show_plate: true,
     };
     let frames = 3;

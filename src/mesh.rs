@@ -196,6 +196,36 @@ impl Transform {
         rotate_xyz(s, self.rot_deg) + self.pos
     }
 
+    /// Undo `apply` for a point. Picking works in the model's own space, so a
+    /// cached tree stays valid while the piece is moved, turned or scaled.
+    pub fn inverse_apply(&self, p: Vec3) -> Vec3 {
+        let q = self.unrotate(p - self.pos);
+        let m = self.mirror.signs();
+        Vec3::new(
+            q.x / (m.x * self.scale.x),
+            q.y / (m.y * self.scale.y),
+            q.z / (m.z * self.scale.z),
+        )
+    }
+
+    /// Undo the rotation and scale for a direction, leaving translation out.
+    pub fn inverse_apply_dir(&self, d: Vec3) -> Vec3 {
+        let q = self.unrotate(d);
+        let m = self.mirror.signs();
+        Vec3::new(
+            q.x / (m.x * self.scale.x),
+            q.y / (m.y * self.scale.y),
+            q.z / (m.z * self.scale.z),
+        )
+    }
+
+    /// `apply` turns X, then Y, then Z; undo those in the opposite order.
+    fn unrotate(&self, p: Vec3) -> Vec3 {
+        let p = rotate_xyz(p, Vec3::new(0.0, 0.0, -self.rot_deg.z));
+        let p = rotate_xyz(p, Vec3::new(0.0, -self.rot_deg.y, 0.0));
+        rotate_xyz(p, Vec3::new(-self.rot_deg.x, 0.0, 0.0))
+    }
+
     /// Run `change`, then slide the piece so that `centre` — a point in the
     /// mesh's own coordinates — lands back where it was. Turning, scaling and
     /// mirroring all go through here so a piece spins and grows about the point
@@ -816,6 +846,30 @@ mod tests {
             "the middle must stay put"
         );
         assert!((t.scale.x - 2.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn inverse_apply_round_trips_points_and_directions() {
+        let mut t = Transform {
+            pos: Vec3::new(-12.0, 4.0, 7.0),
+            rot_deg: Vec3::new(17.0, -31.0, 43.0),
+            scale: Vec3::new(1.7, 0.6, 2.3),
+            ..Default::default()
+        };
+        t.mirror.flip(0);
+        for p in [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(3.0, -5.0, 11.0),
+            Vec3::new(-80.0, 42.0, 0.5),
+        ] {
+            let there = t.apply(p);
+            let back = t.inverse_apply(there);
+            assert!((back - p).length() < 1e-4, "{p:?} -> {there:?} -> {back:?}");
+        }
+        let d = Vec3::new(2.0, -3.0, 5.0);
+        let there = t.apply(d) - t.apply(Vec3::ZERO);
+        let back = t.inverse_apply_dir(there);
+        assert!((back - d).length() < 1e-4, "{d:?} -> {there:?} -> {back:?}");
     }
 
     #[test]
