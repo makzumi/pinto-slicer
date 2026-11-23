@@ -530,6 +530,9 @@ pub struct App {
     slice_for: Option<u64>,
     /// The revision a worker run was asked for, while it is still working.
     pending: Option<u64>,
+    /// An export was asked for while the plate had no supports. Grow them
+    /// first, then continue the export with the result.
+    export_after_supports: bool,
     screenshot: Option<PathBuf>,
     frame_no: u64,
     shot_sent: bool,
@@ -619,6 +622,7 @@ impl App {
             supports_for: None,
             slice_for: None,
             pending: None,
+            export_after_supports: false,
             screenshot,
             frame_no: 0,
             shot_sent: false,
@@ -1160,8 +1164,11 @@ impl App {
             self.support.clear();
             self.support_mesh = Mesh::default();
             self.supports_for = None;
-            self.support_note =
-                "Supports are rebuilt from the saved settings with Generate Supports.".into();
+            self.support_note = if self.settings.supports.enabled && !self.models.is_empty() {
+                "Rebuilding supports from the project settings…".into()
+            } else {
+                "Supports are off for this project.".into()
+            };
         }
         self.refresh_world();
         if !opening {
@@ -1176,6 +1183,13 @@ impl App {
         self.layer_tex_key = None;
         if opening {
             self.fit_view();
+            // Supports are derived data, so a project file cannot carry them.
+            // Rebuild them from the saved settings instead of leaving the
+            // plate silently unsupported (and exporting a bare model).
+            if self.settings.supports.enabled && !self.models.is_empty() {
+                self.start_supports();
+                self.support_note = "Rebuilding supports from the project settings…".into();
+            }
         }
     }
 
@@ -1543,6 +1557,9 @@ impl App {
             // since, the window says so instead of pretending otherwise.
             self.supports_for = self.pending.take();
             self.slice_now();
+            if self.export_after_supports {
+                self.start_export(ctx);
+            }
         }
     }
 
@@ -1937,6 +1954,20 @@ impl App {
     }
 
     fn start_export(&mut self, ctx: &egui::Context) {
+        // Supports are part of the print, but they are not stored in a project
+        // file. If the plate has none (a fresh project, or a project opened
+        // without rebuilding them), grow them before slicing the job. The
+        // flag lets the finished run come back through this function once.
+        if self.settings.supports.enabled && self.support.is_empty() && !self.export_after_supports
+        {
+            self.export_after_supports = true;
+            if self.support_job.is_none() {
+                self.start_supports();
+            }
+            self.export.result = "Growing supports first, then the export will start.".into();
+            return;
+        }
+        self.export_after_supports = false;
         // The layers in memory only describe the plate they were made from.
         if self.out_of_date() {
             self.export.result =
@@ -5397,6 +5428,7 @@ mod tests {
     }
 
     use super::*;
+    use crate::formats;
 
     /// A window with the sample pieces on the plate.
     fn app_with_a_piece() -> App {
@@ -6174,6 +6206,90 @@ mod tests {
             app.models.len(),
             2,
             "and an empty selection removes nothing"
+        );
+    }
+
+    #[test]
+    fn slicing_includes_generated_supports() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        let h = app.settings.layer_height;
+        let bare = slicer::slice(&app.world, h);
+        let supports_only = slicer::slice(std::slice::from_ref(&app.support_mesh), h);
+        let support_segs: usize = supports_only.layers.iter().map(|l| l.segs.len()).sum();
+        let bare_segs: usize = bare.layers.iter().map(|l| l.segs.len()).sum();
+        let all_segs: usize = app
+            .slice
+            .as_ref()
+            .unwrap()
+            .layers
+            .iter()
+            .map(|l| l.segs.len())
+            .sum();
+        assert!(support_segs > 0, "the support mesh must cross slice planes");
+        assert!(
+            all_segs >= bare_segs + support_segs / 2,
+            "supports should contribute to the slice: {all_segs} vs {bare_segs}+{support_segs}"
+        );
+        assert!(
+            !app.slice.as_ref().unwrap().layers[0].segs.is_empty(),
+            "the base must reach the first layer"
+        );
+        assert!(
+            !supports_only.layers[0].segs.is_empty(),
+            "the support base itself must cross the first layer"
+        );
+        let printer = &config::default_printers()[1];
+        let mut mask = Vec::new();
+        formats::mask(
+            &supports_only.layers[0],
+            printer,
+            printer.native_res(),
+            &mut mask,
+        );
+        assert!(
+            mask.iter().any(|&pixel| pixel != 0),
+            "the support base must rasterize to lit pixels"
+        );
+    }
+
+    #[test]
+    fn opening_a_project_regrows_supports_instead_of_leaving_them_behind() {
+        let mut app = app_with_a_piece();
+        app.start_supports_and_wait();
+        let saved = app.project();
+        let mut opened = App::new(Launch::default());
+        opened.restore_project(saved, true);
+        assert!(
+            opened.support_job.is_some() || !opened.support.is_empty(),
+            "opening a supported project must start a support run"
+        );
+        assert!(opened.support_note.contains("Rebuilding"));
+        opened.cancel_support_run();
+    }
+
+    #[test]
+    fn an_export_without_supports_grows_them_before_starting() {
+        let mut app = app_with_a_piece();
+        app.export_after_supports = false;
+        app.support.clear();
+        app.support_mesh = Mesh::default();
+        app.supports_for = None;
+        app.export.dir = std::env::temp_dir().display().to_string();
+        app.export.stem = "supports-before-export".into();
+        let ctx = egui::Context::default();
+        app.start_export(&ctx);
+        assert!(
+            app.export_after_supports,
+            "the export must wait for a support run"
+        );
+        assert!(
+            app.support_job.is_some() || !app.support.is_empty(),
+            "a support run must have been started"
+        );
+        assert!(
+            app.export.rx.is_none(),
+            "the job must not be written before the supports exist"
         );
     }
 

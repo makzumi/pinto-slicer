@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.6/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.7/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,16 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.7" date="2026-11-22">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.7</url>
+      <description>
+        <p>Patch release for support and base geometry in exported jobs.</p>
+        <ul>
+          <li>Rebuild project supports automatically when a project is opened</li>
+          <li>Wait for support generation before exporting, so jobs include the support base and supports</li>
         </ul>
       </description>
     </release>
