@@ -40,7 +40,11 @@ impl SliceResult {
 /// Slice every mesh into 0.5 mm-ish layers. Supports are just meshes here, so
 /// their outlines and the model's merge naturally.
 pub fn slice(meshes: &[Mesh], layer_height: f32) -> SliceResult {
-    let h = layer_height.max(0.005);
+    // UVtools rejects layer heights with more than three decimal places, and
+    // f32 slider math can land one ULP below a clean value (0.049999997 for
+    // 0.05). Quantize at the slicer boundary so every writer emits the same
+    // clean height and the layer positions stay consistent with the header.
+    let h = ((layer_height.max(0.005) * 1000.0).round() / 1000.0).max(0.005);
     let mut top = 0.0f32;
     for m in meshes {
         if m.tris.is_empty() {
@@ -431,5 +435,10 @@ mod tests {
         // roughly 250 pixels and a ring (what a hollow shape would give) would
         // be far fewer.
         assert!((200..=320).contains(&solid), "solid pixels: {solid}");
+    }
+    #[test]
+    fn layer_height_is_quantized_to_three_decimals() {
+        let sl = slice(&[cube(0.0, 0.0, 5.0, 10.0)], 0.049999997);
+        assert_eq!(sl.layer_height, 0.05);
     }
 }

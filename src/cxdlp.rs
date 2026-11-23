@@ -631,6 +631,28 @@ mod tests {
     }
 
     #[test]
+    fn v4_header_layer_height_has_three_decimals() {
+        let sl = slicer::slice(&[mesh::sample_block()], 0.049999997);
+        let path = std::env::temp_dir().join("resin_slicer_layer_height.cxdlpv4");
+        write_v4(
+            &path,
+            &default_printers()[0],
+            &PrintSettings::default(),
+            &sl,
+            (96, 64),
+            &mut |_, _| true,
+        )
+        .unwrap()
+        .unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let height = f32::from_le_bytes(bytes[48..52].try_into().unwrap());
+        assert_eq!(height, 0.05);
+        if std::env::var_os("KEEP_FORMAT_SAMPLES").is_none() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
     fn v3_has_big_endian_magic_and_a_valid_crc() {
         let sl = slicer::slice(&[mesh::sample_block()], 0.5);
         let path = std::env::temp_dir().join("resin_slicer_real.cxdlp");
