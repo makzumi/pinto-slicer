@@ -39,23 +39,12 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v1.0.3/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.4/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
 
   <releases>
-    <release version="1.0.3" date="2026-11-22">
-      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.3</url>
-      <description>
-        <p>Support-preview, slicing, and export improvements.</p>
-        <ul>
-          <li>3D previews for every support setting, with a translucent model for a clear view</li>
-          <li>Reset defaults, Prepare-only transform tools, and clearer Slice and Export controls</li>
-          <li>Faster layer-mask generation and corrected HALOT-X1 CXDLPv4 output</li>
-        </ul>
-      </description>
-    </release>
     <release version="1.0.2" date="2026-11-16">
       <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2</url>
       <description>
@@ -64,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.4" date="2026-11-22">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.4</url>
+      <description>
+        <p>Support-preview, slicing, and export improvements.</p>
+        <ul>
+          <li>3D previews for every support setting, with a translucent model for a clear view</li>
+          <li>Reset defaults, Prepare-only transform tools, and clearer Slice and Export controls</li>
+          <li>Faster layer-mask generation and corrected HALOT-X1 CXDLPv4 output</li>
         </ul>
       </description>
     </release>
