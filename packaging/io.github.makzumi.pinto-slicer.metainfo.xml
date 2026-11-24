@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.9/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.10/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.10" date="2026-11-24">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.10</url>
+      <description>
+        <p>The support density control sits where it can be found, and presets agree with it.</p>
+        <ul>
+          <li>The Density row moved to the top Support card, directly under Preset</li>
+          <li>Presets set the density too: Light 8 mm, Medium 6 mm, Heavy 4 mm</li>
+          <li>A new plate grows about half as many supports, since the default is now 6 mm between tips</li>
         </ul>
       </description>
     </release>
