@@ -24,7 +24,7 @@ use crate::render::{self, Camera, Scene, ViewMode};
 use crate::selection::Selection;
 use crate::slicer::{self, SliceResult};
 use crate::supports::{
-    self, bvh::Bvh, meshgen, tips, ContactShape, Preset, SupportModel, TipShape,
+    self, bvh::Bvh, meshgen, tips, ContactShape, Density, Preset, SupportModel, TipShape,
 };
 
 /// Turn a binary layer mask into a flat cap mesh: one quad per horizontal run
@@ -3434,13 +3434,41 @@ impl App {
                         .suffix("°"),
                     )
                     .changed();
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Density").size(11.5).color(MUTED));
+                    for density in Density::ALL {
+                        let on = (self.settings.supports.touch_tip_distance - density.spacing())
+                            .abs()
+                            < 0.05;
+                        let btn = egui::Button::new(
+                            egui::RichText::new(density.label())
+                                .size(12.0)
+                                .color(if on { egui::Color32::WHITE } else { MUTED }),
+                        )
+                        .fill(if on { ACCENT_BG } else { PILL })
+                        .rounding(egui::Rounding::same(8.0))
+                        .min_size(egui::vec2(66.0, 24.0));
+                        if ui
+                            .add(btn)
+                            .on_hover_text(format!(
+                                "about {:.0} mm between tips",
+                                density.spacing()
+                            ))
+                            .clicked()
+                            && !on
+                        {
+                            self.settings.supports.touch_tip_distance = density.spacing();
+                            changed = true;
+                        }
+                    }
+                });
                 changed |= ui
                     .add(
                         egui::Slider::new(
                             &mut self.settings.supports.touch_tip_distance,
-                            1.5..=10.0,
+                            1.5..=12.0,
                         )
-                        .text("tip spacing")
+                        .text("spacing")
                         .suffix(" mm")
                         .step_by(0.1),
                     )
@@ -3452,8 +3480,10 @@ impl App {
             });
             ui.label(
                 egui::RichText::new(
-                    "Lower overhang angle and tighter spacing mean more tips. Red faces are the \
-                     ones that get a support.",
+                    "Density picks the distance between tips: Low about 8 mm, Medium 6 mm, \
+                     High 4 mm, and the slider takes over from there. Lower overhang angle \
+                     and tighter spacing mean more tips. Red faces are the ones that get a \
+                     support.",
                 )
                 .size(11.0)
                 .color(MUTED),

@@ -253,7 +253,12 @@ fn ground_clusters(heads: &[Tip], ground: &[usize], cfg: &SupportConfig) -> Vec<
             }
             let first = heads[cluster[0]].lower_end();
             let dxy = ((point.x - first.x).powi(2) + (point.y - first.y).powi(2)).sqrt();
-            if dxy < cfg.foot_diameter && (point - first).length() < MAX_BRIDGE_LENGTH {
+            // The reach grows with the tip spacing: a sparse network gets the
+            // same few columns within reach of each other, instead of one
+            // column (and one foot) under every single tip. The clear-path
+            // search below still decides whether the bridge can exist.
+            let reach = cfg.cluster_radius().max(cfg.foot_diameter);
+            if dxy < reach && (point - first).length() < MAX_BRIDGE_LENGTH {
                 destination = Some(cluster_id);
                 break;
             }

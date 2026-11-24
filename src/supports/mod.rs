@@ -26,7 +26,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
 
-pub use config::{ContactShape, Preset, SupportConfig, TipShape};
+pub use config::{ContactShape, Density, Preset, SupportConfig, TipShape};
 
 use crate::mesh::{Mesh, Vec3};
 

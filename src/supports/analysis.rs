@@ -275,8 +275,15 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
     out
 }
 
+/// The spacing Prusa's coverage curve is calibrated for. Every other spacing
+/// scales the curve linearly from this one.
+pub const REFERENCE_TIP_SPACING: f32 = 4.0;
+
+/// How much wider (or tighter) the spacing is than the reference curve.
+/// The clamp only guards against absurd settings; the panel's range is well
+/// inside it, so the slider's millimetres are the spacing that is aimed for.
 fn density_scale(cfg: &SupportConfig) -> f32 {
-    (cfg.touch_tip_distance / 4.0).clamp(0.5, 3.0)
+    (cfg.touch_tip_distance / REFERENCE_TIP_SPACING).clamp(0.25, 4.0)
 }
 
 /// Prusa's default support curve: (radius mm, height above contact mm).
@@ -284,11 +291,9 @@ fn support_radius(z_distance: f32, cfg: &SupportConfig) -> f32 {
     if z_distance < 0.0 {
         return 0.0;
     }
-    // New points start with an unscaled 3.2 mm radius. Density is applied
-    // from the following layer onwards, matching Prusa's generator.
-    if z_distance <= ANALYSIS_LAYER_HEIGHT * 0.5 {
-        return 3.2;
-    }
+    // The whole curve is scaled, first layer included. Leaving the first layer
+    // at a fixed 3.2 mm put a floor under every spacing: two tips could never
+    // be further apart than the curve allows, whatever the panel said.
     let scale = density_scale(cfg);
     let curve = [(3.2, 0.0), (4.0, 3.9), (5.0, 15.0), (6.0, 40.0)];
     for pair in curve.windows(2) {
@@ -438,7 +443,7 @@ fn add_island_contacts(
     // head area. Keep those relationships, scaled by the UI's tip distance.
     let head_area = std::f32::consts::PI * (cfg.tip.upper_diameter * 0.5).powi(2);
     let one_support_length = head_area * 2.9 + 1.3;
-    let inner = (one_support_length * 3.9 * density_scale(cfg).sqrt()).clamp(2.0, 16.0);
+    let inner = (one_support_length * 3.9 * density_scale(cfg)).clamp(2.0, 24.0);
     let outline = one_support_length * 3.9 * 0.75 * density_scale(cfg);
 
     let interior = select_cells(component, grid, inner, false);
@@ -744,7 +749,10 @@ mod tests {
         assert!((support_radius(100.0, &cfg) - 6.0).abs() < 1e-4);
 
         cfg.touch_tip_distance = 8.0;
-        assert_eq!(support_radius(0.0, &cfg), 3.2, "new points start unscaled");
+        assert!(
+            (support_radius(0.0, &cfg) - 6.4).abs() < 1e-4,
+            "the first layer scales with the spacing too"
+        );
         assert!((support_radius(40.0, &cfg) - 12.0).abs() < 1e-4);
     }
 }

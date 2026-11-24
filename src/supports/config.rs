@@ -85,6 +85,39 @@ impl Preset {
     }
 }
 
+/// Three spacings between tips, for the panel's density row.
+///
+/// These are distances the generator actually aims for: `touch_tip_distance`
+/// is how far the coverage circles reach, so a wider value is a sparser
+/// network, not just a bigger tip.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Density {
+    Low,
+    Medium,
+    High,
+}
+
+impl Density {
+    pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+        }
+    }
+
+    /// Target millimetres between tips on overhang areas.
+    pub fn spacing(self) -> f32 {
+        match self {
+            Self::Low => 8.0,
+            Self::Medium => 6.0,
+            Self::High => 4.0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SupportConfig {
     /// Which preset the numbers came from, for the panel's highlight.
@@ -92,7 +125,9 @@ pub struct SupportConfig {
     /// The model is lifted this far above the platform before anything is
     /// generated, so the support network has room.
     pub height_from_platform: f32,
-    /// Target spacing between tips on overhang areas.
+    /// Target spacing between tips on overhang areas. This is the distance
+    /// the coverage radius is derived from: bigger means fewer, further-apart
+    /// tips, so it is the density control as well as a spacing one.
     pub touch_tip_distance: f32,
     /// Measured from vertical: a face is flagged when normal.z < -sin(angle).
     pub overhang_angle_deg: f32,
@@ -263,6 +298,14 @@ mod tests {
         assert_eq!(c.foot_diameter, 3.0);
         assert_eq!(c.base.plate_thickness, 0.8);
         assert_eq!(c.base.margin, 1.0);
+    }
+
+    #[test]
+    fn the_density_row_widens_from_high_to_low() {
+        assert!(Density::Low.spacing() > Density::Medium.spacing());
+        assert!(Density::Medium.spacing() > Density::High.spacing());
+        assert_eq!(Density::High.spacing(), 4.0, "the reference spacing");
+        assert_eq!(Density::ALL.len(), 3);
     }
 
     #[test]

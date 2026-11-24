@@ -4,6 +4,20 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-24
+
+### Added
+
+- A **Density** row on the Support tab: **Low** (about 8 mm between tips), **Medium** (6 mm) and **High** (4 mm), with the spacing slider next to it as the fine control and a wider 1.5–12 mm range.
+
+### Changed
+
+- Tip spacing now scales the whole coverage curve, first layer included. A wide spacing is no longer held back by a fixed 3.2 mm first-layer radius, so the millimetres on the slider are the distance the generator aims for.
+
+### Fixed
+
+- Tips near each other now share one trunk and one foot out to the spacing's cluster radius instead of only within the foot diameter. A dense run no longer grows a column under every contact.
+
 ## [0.1.8] - 2026-11-23
 
 ### Added
@@ -108,7 +122,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.9
 [0.1.8]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.8
 [0.1.7]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.7
 [0.1.6]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.6
