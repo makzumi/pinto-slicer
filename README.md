@@ -10,8 +10,8 @@ A Linux-first resin 3D printer slicer built with **Rust**, **egui**, and **wgpu*
 ## Features
 
 - **Interactive 3D preparation:** move, rotate, scale, mirror, duplicate, align, distribute, and automatically arrange models on the build plate.
-- **Configurable automatic supports:** Light/Medium/Heavy presets, a Low/Medium/High density row plus a tip-spacing slider, adjustable tips, branches, trunks, pads, per-model cleanup after edits, and clear stale-support indicators.
-- **Layer preview and playback:** inspect black-and-white exposure masks and step or play through the sliced job.
+- **Configurable automatic supports:** Light/Medium/Heavy strut sizes, a Low/Medium/High density row plus a tip-spacing slider, adjustable tips, branches, trunks, pads, per-model cleanup after edits, and clear stale-support indicators.
+- **Layer preview and playback:** inspect black-and-white exposure masks and step or play through the sliced job at 0.5×–4×, looping or stopping at the top layer.
 - **Self-contained projects:** save meshes, transforms, printer settings, supports settings, selection, and export options in a versioned `.rslice` file.
 - **Native printer output:** ten built-in GUI profiles, twelve job formats, and export at each profile's exact native LCD resolution.
 - **Safe background export:** cancellation, staged output, and atomic replacement help preserve a previous valid job if an export fails.
@@ -108,8 +108,8 @@ No root access is required. Make sure `~/.local/bin` is on your `PATH` if you wa
 ## The four-step workflow
 
 1. **Prepare** — Open one or more STL/OBJ files, choose a printer profile, and arrange the plate. Use the 3D handles or the **Transform** panel for precise placement. **Drop onto the plate** settles selected models, while **Align & space selected…** aligns or distributes multiple pieces.
-2. **Supports** — Choose a preset and configure the platform gap, tips, branches, trunks, and base. Click **Generate Supports** to generate supports for the current plate. Moving or turning a model deletes its supports and drops it onto the plate; deleting a model removes its supports too. Supports for untouched models are preserved, and **Generate Supports** rebuilds the current plate.
-3. **Slice** — Set layer height and exposure, then click **Slice now**. Inspect the exposure mask, drag the layer slider, or use playback to move through the job.
+2. **Supports** — Choose the strut sizes and density, then configure the platform gap, tips, branches, trunks, and base. Click **Generate Supports** to generate supports for the current plate. Moving or turning a model deletes its supports and drops it onto the plate; deleting a model removes its supports too. Supports for untouched models are preserved, and **Generate Supports** rebuilds the current plate.
+3. **Slice** — Set layer height and exposure, then click **Slice now**. Inspect the exposure mask, drag the layer slider, or use playback to move through the job — pick a speed and whether the last layer loops or stops.
 4. **Export** — Choose a compatible format, then pick the file name and folder in one save dialog. Export writes the printer job file only. HALOT-X1 `.cxdlpv4` files use the newer pixel-pair RLE, so use UVtools 7.1.0 or newer to inspect them.
 
 ### Projects

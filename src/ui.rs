@@ -456,17 +456,46 @@ impl ModelEntry {
 /// Walking the layers like a flipbook: what the play button needs to know.
 struct Playback {
     playing: bool,
-    /// How long one layer stays up, in seconds.
-    per_layer: f32,
-    /// How much of `per_layer` is left before the next one.
+    /// Playback rate: 1× holds each layer for `BASE_PER_LAYER` seconds, 2× for
+    /// half as long, and so on.
+    speed: f32,
+    /// Start over at the last layer instead of coming to rest there.
+    looping: bool,
+    /// How much of the current layer's time is left before the next one.
     left: f32,
+}
+
+/// Seconds one layer stays up at 1×: slow enough to read the picture, quick
+/// enough that a whole plate plays in well under a minute.
+const BASE_PER_LAYER: f32 = 0.12;
+
+/// The speeds the transport offers, slowest first.
+const SPEEDS: [f32; 4] = [0.5, 1.0, 2.0, 4.0];
+
+impl Playback {
+    fn per_layer(&self) -> f32 {
+        (BASE_PER_LAYER / self.speed).clamp(0.02, 1.0)
+    }
+
+    /// One layer forward: the last layer either starts the plate over or brings
+    /// the transport to rest, depending on the loop switch.
+    fn step(&self, cur: usize, n: usize) -> (usize, bool) {
+        if cur + 1 < n {
+            (cur + 1, true)
+        } else if self.looping {
+            (0, true)
+        } else {
+            (cur, false)
+        }
+    }
 }
 
 impl Default for Playback {
     fn default() -> Self {
         Self {
             playing: false,
-            per_layer: 0.12,
+            speed: 1.0,
+            looping: true,
             left: 0.0,
         }
     }
@@ -2362,15 +2391,17 @@ impl App {
             return;
         }
         egui::TopBottomPanel::bottom("playback")
-            .exact_height(46.0)
+            .exact_height(74.0)
             .frame(
                 egui::Frame::none()
                     .fill(BAR)
-                    .inner_margin(egui::Margin::symmetric(12.0, 6.0)),
+                    .inner_margin(egui::Margin::symmetric(12.0, 8.0)),
             )
             .show(ctx, |ui| {
                 let n = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
-                ui.horizontal_centered(|ui| {
+                // Plain rows: `horizontal_centered` fills the panel's height, which
+                // pushes a second row out of the clip rect.
+                ui.horizontal(|ui| {
                     if n == 0 {
                         ui.label(
                             egui::RichText::new("Slice the plate to step through the layers.")
@@ -2384,7 +2415,12 @@ impl App {
                     let playing = self.playback.playing;
                     if transport_button(ui, if playing { icons::PAUSE } else { icons::PLAY }) {
                         self.playback.playing = !playing;
-                        self.playback.left = self.playback.per_layer;
+                        self.playback.left = self.playback.per_layer();
+                        // Without a loop there is nothing to play from the last
+                        // layer, so the play button starts the plate over.
+                        if !playing && !self.playback.looping && cur + 1 >= n {
+                            cur = 0;
+                        }
                     }
                     if transport_button(ui, icons::SKIP_BACK) && cur > 0 {
                         cur -= 1;
@@ -2414,17 +2450,38 @@ impl App {
                         .size(12.0)
                         .color(TEXT),
                     );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.add(
-                            egui::DragValue::new(&mut self.playback.per_layer)
-                                .speed(0.01)
-                                .range(0.02..=1.0)
-                                .fixed_decimals(2)
-                                .suffix(" s"),
-                        );
-                        ui.label(egui::RichText::new("per layer").size(11.5).color(MUTED));
-                    });
                 });
+                // How the flipbook runs: a speed row and the switch that decides
+                // whether the last layer starts the plate over or ends playback.
+                if n > 0 {
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let mut speed = self.playback.speed;
+                        ui.label(egui::RichText::new("Speed").size(11.0).color(MUTED));
+                        for s in SPEEDS {
+                            let on = (speed - s).abs() < 1e-3;
+                            let hint = format!("{:.2} s per layer", BASE_PER_LAYER / s);
+                            if transport_pill(ui, &speed_label(s), on, &hint) {
+                                speed = s;
+                            }
+                        }
+                        if (speed - self.playback.speed).abs() > 1e-3 {
+                            self.playback.speed = speed;
+                            self.playback.left = self.playback.per_layer();
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let on = self.playback.looping;
+                            let hint = if on {
+                                "start over when the last layer has been shown"
+                            } else {
+                                "stop on the last layer"
+                            };
+                            if transport_pill(ui, "Loop", on, hint) {
+                                self.playback.looping = !on;
+                            }
+                        });
+                    });
+                }
             });
     }
 
@@ -2437,12 +2494,13 @@ impl App {
         let dt = ctx.input(|i| i.stable_dt).min(0.25);
         self.playback.left -= dt;
         if self.playback.left <= 0.0 {
-            self.playback.left = self.playback.per_layer.max(0.02);
-            self.current_layer = if self.current_layer + 1 >= n {
-                0
-            } else {
-                self.current_layer + 1
-            };
+            self.playback.left = self.playback.per_layer();
+            let (next, keep_going) = self.playback.step(self.current_layer.min(n - 1), n);
+            self.current_layer = next;
+            self.playback.playing = keep_going;
+            if !keep_going {
+                return;
+            }
         }
         ctx.request_repaint_after(std::time::Duration::from_secs_f32(
             self.playback.left.max(0.0),
@@ -4611,7 +4669,7 @@ impl App {
                          supports too. Generate Supports rebuilds supports for the current plate.\n\
                          3 Slice — layer height and exposure, then Slice now. The picture beside \
                          the plate is what the screen shows; the bar underneath plays through \
-                         the layers.\n\
+                         the layers at 0.5× to 4×, looping or stopping at the top layer.\n\
                          4 Export — writes the selected printer's native job file at its native LCD resolution.",
                     )
                     .size(12.5),
@@ -4771,6 +4829,29 @@ fn transport_button(ui: &mut egui::Ui, icon: icons::Icon) -> bool {
     );
     icons::paint(ui.painter(), rect, icon, if hovered { TEXT } else { MUTED });
     resp.clicked()
+}
+
+/// A pill on the playback transport: the speed choices and the loop switch
+/// share this look so the second row reads as part of the same control.
+fn transport_pill(ui: &mut egui::Ui, label: &str, on: bool, hint: &str) -> bool {
+    let btn = egui::Button::new(egui::RichText::new(label).size(11.5).color(if on {
+        egui::Color32::WHITE
+    } else {
+        MUTED
+    }))
+    .fill(if on { ACCENT_BG } else { PILL })
+    .rounding(egui::Rounding::same(7.0))
+    .min_size(egui::vec2(36.0, 22.0));
+    ui.add(btn).on_hover_text(hint).clicked()
+}
+
+/// `0.5×`, `1×` — a whole multiplier without a trailing `.0`.
+fn speed_label(speed: f32) -> String {
+    if (speed - speed.round()).abs() < 1e-3 {
+        format!("{:.0}×", speed)
+    } else {
+        format!("{speed:.1}×")
+    }
 }
 
 /// How much of a button's height the caption under the glyph takes.
@@ -5598,6 +5679,56 @@ mod tests {
             assert!(!keys.contains(&key), "two tools answer to {key}");
             keys.push(key);
         }
+    }
+
+    #[test]
+    fn playback_loops_or_rests_on_the_last_layer() {
+        let looping = super::Playback::default();
+        assert!(
+            looping.looping,
+            "a plate plays over and over unless told otherwise"
+        );
+        assert_eq!(looping.step(2, 4), (3, true), "mid-plate it just walks on");
+        assert_eq!(
+            looping.step(3, 4),
+            (0, true),
+            "the loop starts the plate over"
+        );
+
+        let once: super::Playback = super::Playback {
+            looping: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            once.step(3, 4),
+            (3, false),
+            "without a loop playback stops on top"
+        );
+        assert_eq!(once.step(0, 1), (0, false), "a single layer cannot advance");
+    }
+
+    #[test]
+    fn speed_scales_the_time_a_layer_stays_up() {
+        let mut playback = super::Playback::default();
+        assert!((playback.per_layer() - super::BASE_PER_LAYER).abs() < 1e-6);
+        playback.speed = 2.0;
+        assert!((playback.per_layer() - super::BASE_PER_LAYER * 0.5).abs() < 1e-6);
+        playback.speed = 0.5;
+        assert!((playback.per_layer() - super::BASE_PER_LAYER * 2.0).abs() < 1e-6);
+        for speed in super::SPEEDS {
+            assert!(
+                (0.02..=1.0).contains(
+                    &super::Playback {
+                        speed,
+                        ..Default::default()
+                    }
+                    .per_layer()
+                ),
+                "{speed}× lands outside the tick's step range"
+            );
+        }
+        assert_eq!(super::speed_label(1.0), "1×");
+        assert_eq!(super::speed_label(0.5), "0.5×");
     }
 
     #[test]

@@ -4,6 +4,9 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Added
+
+- **Playback speed and loop** on the Slice tab: a second row under the transport offers 0.5×, 1×, 2× and 4× (0.24 s to 0.03 s per layer), and a **Loop** switch chooses whether the last layer starts the plate over or brings playback to rest there. The old seconds-per-layer box is gone, so speed has one control rather than two.
 ## [0.1.11] - 2026-11-24
 
 ### Changed
