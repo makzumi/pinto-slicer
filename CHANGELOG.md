@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-11-24
+
 ### Added
 
 - **Open recent** in the File menu lists the last ten files that were opened or saved, newest first, each with its full path on hover. A project in the list opens like **Open project**; a model joins the plate the way a dropped file does. A file that has since been moved or deleted says so and leaves the list.
@@ -153,7 +155,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.13...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.14...HEAD
+[0.1.14]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.14
 [0.1.13]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.13
 [0.1.12]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.12
 [0.1.11]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.11

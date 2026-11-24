@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.13/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.14/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,16 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.14" date="2026-11-24">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.14</url>
+      <description>
+        <p>Finding last week's plate again, and not losing this one.</p>
+        <ul>
+          <li>The File menu lists the last ten files that were opened or saved.</li>
+          <li>Closing the window with unsaved work asks to save, discard or stay.</li>
         </ul>
       </description>
     </release>
