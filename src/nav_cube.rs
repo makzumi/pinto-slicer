@@ -1,6 +1,8 @@
 //! A clickable orientation cube drawn as a lightweight egui overlay.
 //! Its projection uses the main camera basis and a fixed perspective lens,
 //! so zooming the plate never changes the widget's size or field of view.
+//! A house under the cube goes back to the three-quarter view the window
+//! opens with.
 
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 
@@ -103,6 +105,8 @@ pub struct NavCube {
     centre: Pos2,
     faces: Vec<ProjectedFace>,
     hit_radius: f32,
+    /// The house: back to the three-quarter view.
+    home: Rect,
 }
 
 impl NavCube {
@@ -143,10 +147,22 @@ impl NavCube {
             .fold(66.0_f32, |radius, p| {
                 radius.max((p - centre).length() + 4.0)
             });
+        // The house sits just under the cube, centred on it, so the two read
+        // as one widget rather than a cube with a stray button.
+        let mut home = Rect::from_center_size(
+            centre + Vec2::new(0.0, hit_radius + 15.0),
+            Vec2::splat(26.0),
+        );
+        // A short window must still carry the house: it lifts rather than
+        // hanging off the bottom edge.
+        if home.bottom() > viewport.bottom() - 8.0 {
+            home = home.translate(Vec2::new(0.0, viewport.bottom() - 8.0 - home.bottom()));
+        }
         Self {
             centre,
             faces,
             hit_radius,
+            home,
         }
     }
 
@@ -159,8 +175,15 @@ impl NavCube {
             .map(|face| face.face)
     }
 
+    /// The house was clicked. It answers before the faces do, and its box is
+    /// part of `contains`, so a click on it never reaches the plate.
+    pub fn home_hit(&self, pointer: Option<Pos2>) -> bool {
+        pointer.is_some_and(|p| self.home.contains(p))
+    }
+
     pub fn contains(&self, pointer: Option<Pos2>) -> bool {
-        pointer.is_some_and(|p| (p - self.centre).length() <= self.hit_radius)
+        pointer
+            .is_some_and(|p| (p - self.centre).length() <= self.hit_radius || self.home.contains(p))
     }
 
     pub fn paint(&self, painter: &egui::Painter, pointer: Option<Pos2>) {
@@ -198,6 +221,31 @@ impl NavCube {
         }
         // A per-face homography keeps the glyph vertices coplanar as cube
         // edges converge, instead of floating screen-upright over the view.
+        let over_home = self.home_hit(pointer);
+        painter.rect_filled(
+            self.home,
+            egui::Rounding::same(8.0),
+            if over_home {
+                Color32::from_rgb(48, 79, 124)
+            } else {
+                Color32::from_rgb(42, 46, 54)
+            },
+        );
+        painter.rect_stroke(
+            self.home,
+            egui::Rounding::same(8.0),
+            Stroke::new(1.0_f32, Color32::from_rgb(76, 85, 99)),
+        );
+        crate::icons::paint(
+            painter,
+            self.home.shrink(6.0),
+            crate::icons::HOME,
+            if over_home {
+                Color32::WHITE
+            } else {
+                Color32::from_rgb(218, 224, 233)
+            },
+        );
         for face in &self.faces {
             let active = hovered == Some(face.face);
             paint_coplanar_label(
@@ -372,6 +420,35 @@ mod tests {
                 assert!((projection.point(local) - corner).length() < 1e-3);
             }
         }
+    }
+
+    #[test]
+    fn the_house_hangs_under_the_cube_and_only_it_answers_for_that_box() {
+        let view = View::new(&Camera::default(), 900.0, 700.0);
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let cube = NavCube::new(&view, viewport);
+        let centre = cube.home.center();
+        assert!(cube.home_hit(Some(centre)));
+        assert!(
+            cube.contains(Some(centre)),
+            "a click on the house must not reach the plate"
+        );
+        assert_eq!(cube.hit(Some(centre)), None, "the house is not a face");
+        assert!(viewport.contains_rect(cube.home), "the house left the view");
+        assert!(!cube.home_hit(Some(Pos2::new(10.0, 10.0))));
+        assert!(
+            (centre - cube.centre).length() > cube.hit_radius,
+            "the house covers part of the cube"
+        );
+    }
+
+    #[test]
+    fn a_short_window_still_carries_the_house() {
+        let view = View::new(&Camera::default(), 400.0, 150.0);
+        let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 150.0));
+        let cube = NavCube::new(&view, viewport);
+        assert!(viewport.contains_rect(cube.home), "the house left the view");
+        assert!(cube.home_hit(Some(cube.home.center())));
     }
 
     #[test]

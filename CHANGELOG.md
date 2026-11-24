@@ -4,6 +4,11 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Added
+
+- **An orthographic lens** on the 3D view, chosen with the **Persp** and **Ortho** chips under the viewport's caption. Perspective is still the default; the orthographic view keeps every piece at the same size whatever its distance, and shows the plate as the flat, parallel projection measuring is easiest on. Both lenses frame the plate the same way, so the chips can be used mid-thought without the piece jumping.
+- **A house under the navigation cube** takes the camera back to the three-quarter view the window opens with, keeping the distance, the target and the lens it had.
+
 ## [0.1.14] - 2026-11-24
 
 ### Added

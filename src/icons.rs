@@ -30,6 +30,7 @@ pub const SKIP_FORWARD: Icon = phosphor::SKIP_FORWARD;
 pub const DUPLICATE: Icon = phosphor::COPY;
 pub const MIRROR: Icon = phosphor::FLIP_HORIZONTAL;
 pub const DELETE: Icon = phosphor::TRASH;
+pub const HOME: Icon = phosphor::HOUSE;
 
 /// How much of a square box the picture fills, in the font's em size.
 const FILL: f32 = 0.82;

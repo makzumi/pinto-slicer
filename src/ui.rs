@@ -4299,13 +4299,23 @@ impl App {
                 let pointer = raw_pointer.in_view(rect);
                 let navigation = nav_cube::NavCube::new(&probe, rect);
                 let over_navigation = navigation.contains(raw_pointer.pos);
+                // The lens chips are painted last, over the picture, but their
+                // boxes are known now: a click on one must not also turn or
+                // pick the plate behind it.
+                let over_chips = raw_pointer
+                    .pos
+                    .is_some_and(|p| lens_chips(rect).iter().any(|(chip, _, _)| chip.contains(p)));
+                let over_controls = over_navigation || over_chips;
                 let drag_active = self.input.is_dragging();
                 let face_click = if raw_pointer.primary_pressed && !drag_active {
                     navigation.hit(raw_pointer.pos)
                 } else {
                     None
                 };
-                let hover = pointer.pos.filter(|_| resp.hovered() && !over_navigation);
+                let home_click = raw_pointer.primary_pressed
+                    && !drag_active
+                    && navigation.home_hit(raw_pointer.pos);
+                let hover = pointer.pos.filter(|_| resp.hovered() && !over_controls);
                 let hover_handle = match &self.grab {
                     Some(g) => Some(g.handle),
                     None => hover.and_then(|p| gizmo.as_ref().and_then(|g| g.hit(&probe, p))),
@@ -4315,7 +4325,12 @@ impl App {
                     self.status = format!("{} view", face.label());
                     self.cancel_gesture();
                 }
-                let actions = if over_navigation && !drag_active {
+                if home_click {
+                    self.cam.home();
+                    self.fit_view();
+                    self.status = "Home view".into();
+                }
+                let actions = if over_controls && !drag_active {
                     Vec::new()
                 } else {
                     // Existing drags still receive updates and, critically,
@@ -4356,13 +4371,13 @@ impl App {
                         }
                     }
                 }
-                if over_navigation {
+                if over_controls {
                     ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
                 } else {
                     ctx.set_cursor_icon(self.input.cursor(gizmo.as_ref(), &probe, pointer.pos));
                 }
                 // the wheel zooms while the pointer is over the view
-                if resp.hovered() && !over_navigation {
+                if resp.hovered() && !over_controls {
                     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
                     if scroll.abs() > 0.1 {
                         self.cam.dist =
@@ -4486,6 +4501,26 @@ impl App {
                     ViewMode::Sliced => "SLICED LAYERS",
                 };
                 badge(&painter, rect.left_top() + egui::vec2(12.0, 12.0), text);
+                // The lens sits with the badge it belongs to, so the two read
+                // as one caption for what the picture is showing.
+                for (chip, label, orthographic) in lens_chips(rect) {
+                    let hint = if orthographic {
+                        "Orthographic: every piece keeps its size, however far away it is"
+                    } else {
+                        "Perspective: the near pieces look bigger (the default)"
+                    };
+                    let response = ui
+                        .put(chip, lens_pill(label, self.cam.ortho == orthographic))
+                        .on_hover_text(hint);
+                    if response.clicked() {
+                        self.cam.ortho = orthographic;
+                        self.status = if orthographic {
+                            "Orthographic view".into()
+                        } else {
+                            "Perspective view".into()
+                        };
+                    }
+                }
                 if self.models.is_empty() {
                     painter.text(
                         rect.center(),
@@ -4886,7 +4921,9 @@ impl App {
                          Ctrl+D duplicate, Ctrl+A pick everything, Escape to let go, \
                          Delete or Backspace to remove, Ctrl+Q to quit. Closing the window \
                          with work that has not been saved asks first: the File menu also \
-                         lists the last ten files opened, under Open recent. A turn ring can be made to land on \
+                         lists the last ten files opened, under Open recent. Under the \
+                         viewport's caption, Persp and Ortho swap the lens, and the house \
+                         under the orientation cube goes back to the three-quarter view. A turn ring can be made to land on \
                          round numbers from the Snap box in the numbers window.
 
                          The Align & space dialog can be dragged by its title bar. Projects \
@@ -5285,6 +5322,34 @@ fn step_button(ui: &mut egui::Ui, selected: bool, step: Tab) -> bool {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.clicked()
+}
+
+/// The two lens chips, each with the box it occupies and the camera setting
+/// it stands for. Kept as plain geometry so the pointer can be measured
+/// against them before the picture is even drawn.
+fn lens_chips(rect: egui::Rect) -> [(egui::Rect, &'static str, bool); 2] {
+    let size = egui::vec2(58.0, 22.0);
+    let at = rect.left_top() + egui::vec2(12.0, 40.0);
+    [
+        (egui::Rect::from_min_size(at, size), "Persp", false),
+        (
+            egui::Rect::from_min_size(at + egui::vec2(size.x + 4.0, 0.0), size),
+            "Ortho",
+            true,
+        ),
+    ]
+}
+
+fn lens_pill(label: &str, on: bool) -> egui::Button<'static> {
+    let text = egui::RichText::new(label).size(10.5);
+    egui::Button::new(text.color(if on { egui::Color32::WHITE } else { MUTED }))
+        .fill(if on {
+            ACCENT_BG
+        } else {
+            egui::Color32::from_black_alpha(120)
+        })
+        .rounding(egui::Rounding::same(7.0))
+        .stroke(egui::Stroke::NONE)
 }
 
 fn badge(painter: &egui::Painter, at: egui::Pos2, text: &str) {
@@ -6408,6 +6473,35 @@ mod tests {
     /// the prepare step, and then a click picks a neighbour of what the picture
     /// shows, so the delete removes the wrong piece. The picture is drawn from
     /// `world` and a click walks `models`; the two have to stay index for index.
+    #[test]
+    fn an_orthographic_plate_picks_what_the_screen_shows_and_homes_back() {
+        let mut app = app_with_a_piece();
+        make_room(&mut app);
+        app.arrange_all(true);
+        app.cam.ortho = true;
+        app.fit_view();
+        for i in 0..app.models.len() {
+            let (min, max) = app.world[i].bounds();
+            click_at(&mut app, (min + max) * 0.5);
+            assert_eq!(
+                app.selection.primary(),
+                Some(i),
+                "an orthographic click has to pick the piece it lands on"
+            );
+        }
+
+        // The house is an angle, not a lens: it decides the way the plate is
+        // looked at and leaves the lens and the framing where they were.
+        app.cam.align_eye_to(Vec3::new(0.0, 0.0, 1.0));
+        let before = app.cam.dist;
+        app.cam.home();
+        let fresh = Camera::default();
+        assert_eq!(app.cam.yaw, fresh.yaw);
+        assert_eq!(app.cam.pitch, fresh.pitch);
+        assert!(app.cam.ortho);
+        assert_eq!(app.cam.dist, before);
+    }
+
     #[test]
     fn a_click_after_a_removal_picks_the_piece_the_picture_shows() {
         let mut app = app_with_a_piece();

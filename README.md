@@ -139,7 +139,7 @@ Use the **File** menu to save and reopen `.rslice` projects. Meshes are embedded
 | Cancel or clear the current interaction | `Esc` |
 | Quit (asks about unsaved changes) | `Ctrl+Q` |
 
-The navigation cube snaps the camera to six standard views. The Transform panel also provides numeric transforms, angle snapping, duplication, deletion, and axis mirroring.
+The navigation cube snaps the camera to six standard views, and the house under it returns to the three-quarter view the window opens with. The **Persp** and **Ortho** chips under the 3D badge swap the lens: perspective keeps depth reading naturally, orthographic keeps every piece the same size so distances can be compared by eye. The Transform panel also provides numeric transforms, angle snapping, duplication, deletion, and axis mirroring.
 
 ## Command-line usage
 

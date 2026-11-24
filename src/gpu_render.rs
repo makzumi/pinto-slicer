@@ -16,6 +16,10 @@ const BG_BOTTOM: [u8; 3] = [10, 12, 15];
 /// Column-major world-to-clip matrix with an infinite-far reverse-Z mapping.
 /// After perspective division, NDC depth is `NEAR / camera_z`: one at the near
 /// plane and approaching zero in the distance. X/Y exactly match `View`.
+///
+/// An orthographic view has no divide to do it with, so it clips with `w = 1`
+/// and walks depth in a straight line instead: one at the near plane, zero at
+/// the view's far plane.
 pub fn view_projection(view: &View) -> [f32; 16] {
     let sx = 2.0 * view.focal / view.w;
     let sy = 2.0 * view.focal / view.h;
@@ -23,6 +27,28 @@ pub fn view_projection(view: &View) -> [f32; 16] {
     let u = view.up;
     let f = view.fwd;
     let e = view.eye;
+    if view.ortho {
+        let span = (view.depth_far - NEAR).max(NEAR);
+        let k = 1.0 / span;
+        return [
+            r.x * sx,
+            u.x * sy,
+            -f.x * k,
+            0.0,
+            r.y * sx,
+            u.y * sy,
+            -f.y * k,
+            0.0,
+            r.z * sx,
+            u.z * sy,
+            -f.z * k,
+            0.0,
+            -e.dot(r) * sx,
+            -e.dot(u) * sy,
+            (e.dot(f) + view.depth_far) * k,
+            1.0,
+        ];
+    }
     [
         r.x * sx,
         u.x * sy,
@@ -1286,6 +1312,7 @@ mod tests {
                 dist: 85.0,
                 target: Vec3::new(12.0, -8.0, 9.0),
                 fov_deg: 52.0,
+                ..Camera::default()
             },
             Camera {
                 yaw: -2.4,
@@ -1293,6 +1320,11 @@ mod tests {
                 dist: 32.0,
                 target: Vec3::new(-20.0, 4.0, 2.0),
                 fov_deg: 35.0,
+                ..Camera::default()
+            },
+            Camera {
+                ortho: true,
+                ..Camera::default()
             },
         ] {
             let view = View::new(&camera, 913.0, 617.0);
@@ -1309,12 +1341,19 @@ mod tests {
                     continue;
                 };
                 let clip = transform_point(matrix, point);
-                assert!((clip[3] - camera_z).abs() < 1e-4);
                 let x = (clip[0] / clip[3] + 1.0) * view.w * 0.5;
                 let y = (1.0 - clip[1] / clip[3]) * view.h * 0.5;
                 assert!((x - want_x).abs() < 0.01, "x {x} != {want_x}");
                 assert!((y - want_y).abs() < 0.01, "y {y} != {want_y}");
-                assert!((clip[2] / clip[3] - NEAR / camera_z).abs() < 1e-5);
+                if view.ortho {
+                    // No divide: the far plane has to be a real distance.
+                    assert!((clip[3] - 1.0).abs() < 1e-6);
+                    let want = (view.depth_far - camera_z) / (view.depth_far - NEAR);
+                    assert!((clip[2] - want).abs() < 1e-5, "depth {} != {want}", clip[2]);
+                } else {
+                    assert!((clip[3] - camera_z).abs() < 1e-4);
+                    assert!((clip[2] / clip[3] - NEAR / camera_z).abs() < 1e-5);
+                }
             }
         }
     }
