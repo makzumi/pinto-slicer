@@ -169,8 +169,9 @@ pub fn run(path: &Path) -> Result<(), String> {
 
     println!("\nslowest load {worst_load} ms, slowest single model slice {worst_slice} ms");
 
-    // Do the presets really change the result? This is what the Supports tab sets.
-    let counts: Vec<String> = [Preset::Light, Preset::Medium, Preset::Heavy]
+    // The presets size the struts, not the count, so all three should land the
+    // same tips and differ in triangles. The count comes from the spacing.
+    let sizes: Vec<String> = [Preset::Light, Preset::Medium, Preset::Heavy]
         .iter()
         .map(|p| {
             let cfg = SupportConfig::from_preset(*p);
@@ -184,7 +185,7 @@ pub fn run(path: &Path) -> Result<(), String> {
             )
         })
         .collect();
-    println!("supports by preset: {}", counts.join(", "));
+    println!("supports by strut size: {}", sizes.join(", "));
     let mut bare = SupportConfig::default();
     bare.tip.shape = supports::TipShape::Cylinder;
     bare.base.plate_thickness = 0.0;

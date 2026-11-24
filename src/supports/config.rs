@@ -83,18 +83,7 @@ impl Preset {
             Self::Heavy => "Heavy",
         }
     }
-
-    /// The density a preset lands on. The two rows have to agree: a preset
-    /// that highlights Medium while the tips sit at High spacing reads as a bug.
-    pub fn density(self) -> Density {
-        match self {
-            Self::Light => Density::Low,
-            Self::Medium => Density::Medium,
-            Self::Heavy => Density::High,
-        }
-    }
 }
-
 /// Three spacings between tips, for the panel's density row.
 ///
 /// These are distances the generator actually aims for: `touch_tip_distance`
@@ -174,42 +163,46 @@ impl Default for SupportConfig {
 }
 
 impl SupportConfig {
-    /// A preset scales the whole network: spacing, tips, branches and trunks.
+    /// A preset sizes the network: tips, branches, trunks and feet. It leaves
+    /// the tip spacing to the density row — one button quietly rewriting the
+    /// other's number is what made the two rows look broken.
     pub fn from_preset(p: Preset) -> Self {
-        let mut c = Self {
-            preset: p,
-            ..Default::default()
-        };
-        // The preset's spacing is its density, so the two rows in the panel
-        // cannot disagree after a preset is applied.
-        c.touch_tip_distance = p.density().spacing();
-        match p {
-            Preset::Light => {
-                c.tip.lower_diameter = 1.0;
-                c.tip.upper_diameter = 0.5;
-                c.branch_diameter = 0.8;
-                c.trunk_diameter = 1.4;
-                c.trunk_diameter_max = 2.0;
-                c.foot_diameter = 2.6;
-            }
-            Preset::Medium => {}
-            Preset::Heavy => {
-                c.tip.lower_diameter = 1.4;
-                c.tip.upper_diameter = 0.8;
-                c.branch_diameter = 1.1;
-                c.trunk_diameter = 2.0;
-                c.trunk_diameter_max = 2.8;
-                c.foot_diameter = 3.6;
-            }
-        }
+        let mut c = Self::default();
+        c.apply_preset(p);
         c
     }
 
-    /// Fills in a preset's numbers but keeps the on/off switch.
+    /// Fills in a preset's numbers but keeps the on/off switch and the density.
     pub fn apply_preset(&mut self, p: Preset) {
-        let enabled = self.enabled;
-        *self = Self::from_preset(p);
-        self.enabled = enabled;
+        // Start from the default sizes, so going Heavy -> Light cannot keep the
+        // heavier numbers that Light does not list.
+        let d = Self::default();
+        self.tip.upper_diameter = d.tip.upper_diameter;
+        self.tip.lower_diameter = d.tip.lower_diameter;
+        self.branch_diameter = d.branch_diameter;
+        self.trunk_diameter = d.trunk_diameter;
+        self.trunk_diameter_max = d.trunk_diameter_max;
+        self.foot_diameter = d.foot_diameter;
+        match p {
+            Preset::Light => {
+                self.tip.lower_diameter = 1.0;
+                self.tip.upper_diameter = 0.5;
+                self.branch_diameter = 0.8;
+                self.trunk_diameter = 1.4;
+                self.trunk_diameter_max = 2.0;
+                self.foot_diameter = 2.6;
+            }
+            Preset::Medium => {}
+            Preset::Heavy => {
+                self.tip.lower_diameter = 1.4;
+                self.tip.upper_diameter = 0.8;
+                self.branch_diameter = 1.1;
+                self.trunk_diameter = 2.0;
+                self.trunk_diameter_max = 2.8;
+                self.foot_diameter = 3.6;
+            }
+        }
+        self.preset = p;
     }
 
     /// Closest two tips may be.
@@ -320,18 +313,31 @@ mod tests {
     }
 
     #[test]
-    fn a_preset_and_its_density_are_the_same_choice() {
-        for p in [Preset::Light, Preset::Medium, Preset::Heavy] {
-            assert_eq!(
-                SupportConfig::from_preset(p).touch_tip_distance,
-                p.density().spacing()
-            );
-        }
+    fn a_preset_sizes_struts_and_leaves_the_density_alone() {
+        // Which side owns which number: the preset sets thicknesses, the
+        // density row sets the spacing, and neither rewrites the other.
+        let mut c = SupportConfig::default();
+        let spacing = c.touch_tip_distance;
+        let height = c.height_from_platform;
+        let overhang = c.overhang_angle_deg;
+        c.apply_preset(Preset::Heavy);
+        assert!(c.trunk_diameter > SupportConfig::default().trunk_diameter);
         assert_eq!(
-            SupportConfig::default().touch_tip_distance,
-            Preset::Medium.density().spacing(),
-            "the default preset and the default density describe one setting"
+            c.touch_tip_distance, spacing,
+            "a preset must not move the density"
         );
+        assert_eq!(c.preset, Preset::Heavy);
+
+        c.apply_preset(Preset::Light);
+        assert!((c.trunk_diameter - 1.4).abs() < 1e-4);
+        assert!(
+            (c.foot_diameter - 2.6).abs() < 1e-4,
+            "Light must not keep Heavy's numbers"
+        );
+        assert_eq!(c.touch_tip_distance, spacing);
+        assert_eq!(c.height_from_platform, height);
+        assert_eq!(c.overhang_angle_deg, overhang);
+        assert!(c.enabled, "the on/off switch is not a preset's business");
     }
 
     #[test]

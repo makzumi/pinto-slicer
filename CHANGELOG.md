@@ -4,6 +4,10 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- **Presets** set only the strut thicknesses now — tip, branch, trunk and foot diameters — and the **Density** row owns the tip spacing alone. Picking one no longer moves the other's number or drops its highlight, and the row is labelled **Strut sizes** so it cannot be mistaken for a density control.
+
 ## [0.1.10] - 2026-11-24
 
 ### Changed

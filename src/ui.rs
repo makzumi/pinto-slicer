@@ -3146,16 +3146,17 @@ impl App {
             }
 
             let mut preset = self.settings.supports.preset;
-            small_label(ui, "Preset");
+            // The preset is the strut weight and the density row is the count, so
+            // each pill lights from its own number and clicking one never dims the
+            // other row.
+            ui.horizontal(|ui| small_label(ui, "Strut sizes"))
+                .response
+                .on_hover_text(
+                    "Tip, branch, trunk and foot diameters. How many supports you get is the density row below.",
+                );
             ui.horizontal(|ui| {
                 for p in [Preset::Light, Preset::Medium, Preset::Heavy] {
-                    // A preset keeps its highlight only while the spacing still
-                    // matches it; moving the density row away leaves neither lit
-                    // rather than one that lies about the current numbers.
-                    let selected = preset == p
-                        && (self.settings.supports.touch_tip_distance - p.density().spacing())
-                            .abs()
-                            < 0.05;
+                    let selected = preset == p;
                     let btn = egui::Button::new(egui::RichText::new(p.label()).size(12.5).color(
                         if selected {
                             egui::Color32::WHITE
@@ -3176,9 +3177,9 @@ impl App {
                 changed = true;
             }
 
-            // Density is the same kind of choice as the preset — how far apart
-            // the tips end up — so it sits here rather than five cards down. It
-            // writes the tip spacing; the slider under it is the fine control.
+            // Density is the count knob: it writes the tip spacing and nothing
+            // else, so it cannot fight with the strut sizes above. The slider
+            // under it is the fine control.
             small_label(ui, "Density");
             ui.horizontal(|ui| {
                 for density in Density::ALL {
@@ -4604,7 +4605,7 @@ impl App {
                          this panel move between them, and any step can be opened directly.\n\
                          1 Prepare — open a model, arrange the pieces, drop them onto the plate \
                          with the button at the bottom of the layout card.\n\
-                         2 Supports — choose a preset and the tip, pillar and base sizes, then \
+                         2 Supports — choose the strut sizes and the density, then \
                          press Generate Supports to grow them. Moving or turning a piece deletes its \
                          supports and drops it onto the plate; deleting a piece removes its \
                          supports too. Generate Supports rebuilds supports for the current plate.\n\

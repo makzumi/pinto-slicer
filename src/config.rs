@@ -348,7 +348,8 @@ mod tests {
         let light = crate::supports::SupportConfig::from_preset(crate::supports::Preset::Light);
         let heavy = crate::supports::SupportConfig::from_preset(crate::supports::Preset::Heavy);
         assert!(heavy.trunk_diameter > light.trunk_diameter);
-        assert!(heavy.touch_tip_distance < light.touch_tip_distance);
         assert!(heavy.tip.lower_diameter > light.tip.lower_diameter);
+        // The preset is the strut weight; how many there are is the density row.
+        assert_eq!(heavy.touch_tip_distance, light.touch_tip_distance);
     }
 }
