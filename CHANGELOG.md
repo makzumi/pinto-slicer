@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-24
+
 ### Changed
 
 - **Presets** set only the strut thicknesses now — tip, branch, trunk and foot diameters — and the **Density** row owns the tip spacing alone. Picking one no longer moves the other's number or drops its highlight, and the row is labelled **Strut sizes** so it cannot be mistaken for a density control.
@@ -134,7 +136,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.11
 [0.1.10]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.10
 [0.1.9]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.9
 [0.1.8]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.8

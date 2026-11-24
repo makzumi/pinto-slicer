@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.10/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.11/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.11" date="2026-11-24">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.11</url>
+      <description>
+        <p>The preset and density rows each own one number again.</p>
+        <ul>
+          <li>Presets change only the tip, branch, trunk and foot thicknesses</li>
+          <li>Density changes only how far apart the tips are; the two rows no longer move each other</li>
+          <li>The preset row is labelled Strut sizes so it is not mistaken for a density control</li>
         </ul>
       </description>
     </release>
