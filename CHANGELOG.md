@@ -4,6 +4,11 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Added
+
+- **Open recent** in the File menu lists the last ten files that were opened or saved, newest first, each with its full path on hover. A project in the list opens like **Open project**; a model joins the plate the way a dropped file does. A file that has since been moved or deleted says so and leaves the list.
+- **Quitting asks before it loses work.** Closing the window — or pressing **Ctrl+Q**, now in the File menu — while the plate differs from the last project file it was written to offers **Save and quit**, **Quit without saving** and **Cancel**. Saving from the question writes the project and closes the window when the write lands.
+
 ## [0.1.13] - 2026-11-24
 
 ### Fixed

@@ -14,6 +14,7 @@ mod layout;
 mod mesh;
 mod nav_cube;
 mod project;
+mod recent;
 mod render;
 mod selection;
 mod slicer;

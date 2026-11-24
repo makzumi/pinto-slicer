@@ -20,6 +20,7 @@ use crate::layout;
 use crate::mesh::{self, Mesh, Transform, Vec3};
 use crate::nav_cube;
 use crate::project;
+use crate::recent::Recent;
 use crate::render::{self, Camera, Scene, ViewMode};
 use crate::selection::Selection;
 use crate::slicer::{self, SliceResult};
@@ -392,6 +393,7 @@ struct Pressed {
     fit: bool,
     values: bool,
     duplicate: bool,
+    quit: bool,
     everything: bool,
     nothing: bool,
     remove: bool,
@@ -601,6 +603,22 @@ pub struct App {
     project_job: Option<Receiver<Result<project::IoResult, String>>>,
     project_open_generation: Option<u64>,
     change_serial: u64,
+    /// The change serial the open project file holds; equal to `change_serial`
+    /// means nothing is waiting to be written.
+    saved_serial: u64,
+    /// The serial the save in flight was taken at.
+    save_serial: u64,
+    /// The close button was pressed while changes were unwritten.
+    quit_prompt: bool,
+    /// A save is in flight that closes the window when it lands.
+    quit_after_save: bool,
+    /// A save landed and the window should close this frame.
+    quit_now: bool,
+    /// Whether closing the window asks about unwritten changes. A window that
+    /// exists to be photographed closes without a word.
+    prompt_on_close: bool,
+    /// The files opened most recently, newest first.
+    recent: Recent,
     project_path: Option<PathBuf>,
     /// The picture the plate view was last drawn as, and what it was drawn
     /// from. A heavy plate takes tens of milliseconds to rasterise, and the
@@ -709,6 +727,13 @@ impl App {
             project_job: None,
             project_open_generation: None,
             change_serial: 0,
+            saved_serial: 0,
+            save_serial: 0,
+            quit_prompt: false,
+            quit_after_save: false,
+            quit_now: false,
+            prompt_on_close: !wait_for_runs,
+            recent: startup_recent(),
             project_path: None,
             picture: None,
             gpu: None,
@@ -1372,6 +1397,139 @@ impl App {
         self.picker.open_project();
     }
 
+    /// The files opened last, newest first. A project opens like the File
+    /// menu's own open; a model joins the plate the way a dropped file does.
+    fn recent_files_menu(&mut self, ui: &mut egui::Ui) {
+        if self.recent.is_empty() {
+            ui.add_enabled(false, egui::Button::new("Nothing opened yet"));
+            return;
+        }
+        let entries = self.recent.paths().to_vec();
+        let mut chosen = None;
+        for path in &entries {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("(unnamed)");
+            if ui
+                .button(name)
+                .on_hover_text(path.display().to_string())
+                .clicked()
+            {
+                chosen = Some(path.clone());
+            }
+        }
+        if let Some(path) = chosen {
+            ui.close_menu();
+            self.open_recent(&path);
+        }
+    }
+
+    fn open_recent(&mut self, path: &Path) {
+        if !path.exists() {
+            self.recent.forget(path);
+            self.status = format!("{} is no longer on disk.", path.display());
+            return;
+        }
+        let is_project = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(dialog::PROJECT_EXTENSION))
+            || project::is_project(path);
+        if is_project {
+            self.start_project_open(path.to_path_buf());
+        } else {
+            self.load_path(path);
+        }
+    }
+
+    /// Is the plate different from the project file it was last written to?
+    fn unsaved_changes(&self) -> bool {
+        self.change_serial != self.saved_serial
+    }
+
+    /// The close button and Quit ask the same question: is anything waiting to
+    /// be written?
+    fn request_quit(&mut self, ctx: &egui::Context) {
+        if self.prompt_on_close && self.unsaved_changes() {
+            self.quit_prompt = true;
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    /// Hold the window open while the quit question is unanswered.
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if !ctx.input(|input| input.viewport().close_requested()) {
+            return;
+        }
+        if !self.prompt_on_close || !self.unsaved_changes() {
+            return;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        self.quit_prompt = true;
+    }
+
+    /// The question itself: save, lose the changes, or stay.
+    fn quit_window(&mut self, ctx: &egui::Context) {
+        if !self.quit_prompt {
+            return;
+        }
+        let name = self.document_name();
+        let (mut save, mut discard, mut cancel) = (false, false, false);
+        egui::Window::new("Save before quitting?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_max_width(360.0);
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{name} has changes that are not in a project file."
+                    ))
+                    .color(TEXT),
+                );
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Save and quit").clicked() {
+                        save = true;
+                    }
+                    if ui.button("Quit without saving").clicked() {
+                        discard = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if cancel {
+            self.quit_prompt = false;
+        } else if save {
+            // A save already on its way owns the project file; the question
+            // stays up rather than pretending the plate was written.
+            if self.project_job.is_some() {
+                self.status = "Wait for the current project operation to finish.".into();
+                return;
+            }
+            self.quit_prompt = false;
+            self.quit_after_save = true;
+            self.save_project();
+        } else if discard {
+            self.quit_prompt = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    /// What the quit question calls the plate.
+    fn document_name(&self) -> String {
+        self.project_path
+            .as_ref()
+            .and_then(|path| path.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("This plate")
+            .to_string()
+    }
+
     fn start_project_save(&mut self, mut path: PathBuf) {
         self.cancel_gesture();
         if self.project_job.is_some() {
@@ -1390,6 +1548,7 @@ impl App {
             path.set_file_name(format!("{name}.{}", dialog::PROJECT_EXTENSION));
         }
         self.flush_history();
+        self.save_serial = self.change_serial;
         let snapshot = self.project();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -1444,7 +1603,13 @@ impl App {
         match result {
             Ok(project::IoResult::Saved(path)) => {
                 self.project_path = Some(path.clone());
+                self.saved_serial = self.save_serial;
+                self.recent.remember(&path);
                 self.status = format!("Project saved to {}.", path.display());
+                if self.quit_after_save {
+                    self.quit_after_save = false;
+                    self.quit_now = true;
+                }
             }
             Ok(project::IoResult::Loaded(path, saved)) => {
                 if changed_while_opening {
@@ -1457,9 +1622,15 @@ impl App {
                 self.restore_project(*saved, true);
                 self.project_path = Some(path.clone());
                 self.history = Some(project::History::new(self.project()));
+                self.saved_serial = self.change_serial;
+                self.recent.remember(&path);
                 self.status = format!("Project opened from {}.", path.display());
             }
-            Err(error) => self.status = format!("Project error: {error}"),
+            Err(error) => {
+                self.status = format!("Project error: {error}");
+                // A failed save leaves the window open, with the plate intact.
+                self.quit_after_save = false;
+            }
         }
     }
 
@@ -1731,11 +1902,16 @@ impl App {
                     self.start_project_open(path.clone());
                 }
             }
-            dialog::PickKind::SaveProject => {
-                if let Some(path) = answer.paths.first() {
-                    self.start_project_save(path.clone());
+            dialog::PickKind::SaveProject => match answer.paths.first() {
+                Some(path) => self.start_project_save(path.clone()),
+                // The chooser was dismissed. A save that was going to close the
+                // window stays open, and the question is asked again.
+                None if self.quit_after_save => {
+                    self.quit_after_save = false;
+                    self.quit_prompt = true;
                 }
-            }
+                None => {}
+            },
             dialog::PickKind::ExportJob { extension, .. } => {
                 if let Some(path) = answer.paths.first() {
                     let parent = path.parent().unwrap_or_else(|| Path::new("."));
@@ -1802,6 +1978,8 @@ impl App {
                     self.restore_project(saved, true);
                     self.project_path = Some(path.to_path_buf());
                     self.history = Some(project::History::new(self.project()));
+                    self.saved_serial = self.change_serial;
+                    self.recent.remember(path);
                     self.status = format!("Project opened from {}.", path.display());
                 }
                 Err(error) => self.status = error,
@@ -1821,6 +1999,7 @@ impl App {
                 );
                 self.refresh_world();
                 self.touched();
+                self.recent.remember(path);
                 self.arrange_all(false);
                 // A new piece arrives floating wherever its own file put it;
                 // it lands on the plate like the others before it is seen.
@@ -2307,6 +2486,7 @@ impl App {
                             ui.close_menu();
                             self.open_project();
                         }
+                        ui.menu_button("Open recent", |ui| self.recent_files_menu(ui));
                         ui.separator();
                         if ui.button("Save project  Ctrl+S").clicked() {
                             ui.close_menu();
@@ -2333,6 +2513,11 @@ impl App {
                         {
                             ui.close_menu();
                             self.redo();
+                        }
+                        ui.separator();
+                        if ui.button("Quit  Ctrl+Q").clicked() {
+                            ui.close_menu();
+                            self.request_quit(ui.ctx());
                         }
                     });
                     ui.add_space(12.0);
@@ -4320,7 +4505,7 @@ impl App {
     /// The keys written on the tooltips, all read from the same place as the
     /// tooltips themselves so the two cannot say different things.
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() {
+        if ctx.wants_keyboard_input() || self.quit_prompt {
             return;
         }
         let pressed = ctx.input(|i| Pressed {
@@ -4330,6 +4515,7 @@ impl App {
             save_project_as: i.key_pressed(egui::Key::S)
                 && i.modifiers.command
                 && i.modifiers.shift,
+            quit: i.key_pressed(egui::Key::Q) && i.modifiers.command,
             undo: i.key_pressed(egui::Key::Z) && i.modifiers.command && !i.modifiers.shift,
             redo: (i.key_pressed(egui::Key::Z) && i.modifiers.command && i.modifiers.shift)
                 || (i.key_pressed(egui::Key::Y) && i.modifiers.command),
@@ -4350,6 +4536,9 @@ impl App {
             self.save_project_as();
         } else if pressed.save_project {
             self.save_project();
+        }
+        if pressed.quit {
+            self.request_quit(ctx);
         }
         if pressed.undo {
             self.undo();
@@ -4695,7 +4884,9 @@ impl App {
                          Ctrl+O open models, Ctrl+Shift+O open project, Ctrl+S save, \
                          Ctrl+Shift+S save as, Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo, \
                          Ctrl+D duplicate, Ctrl+A pick everything, Escape to let go, \
-                         Delete or Backspace to remove. A turn ring can be made to land on \
+                         Delete or Backspace to remove, Ctrl+Q to quit. Closing the window \
+                         with work that has not been saved asks first: the File menu also \
+                         lists the last ten files opened, under Open recent. A turn ring can be made to land on \
                          round numbers from the Snap box in the numbers window.
 
                          The Align & space dialog can be dragged by its title bar. Projects \
@@ -4739,10 +4930,15 @@ impl eframe::App for App {
         if self.screenshot.is_some() {
             self.screenshot_tick(ctx);
         }
+        self.handle_close_request(ctx);
         self.poll_export(ctx);
         self.poll_supports(ctx);
         self.poll_slice(ctx);
         self.poll_project();
+        if self.quit_now {
+            self.quit_now = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.poll_picker(ctx);
         self.poll_dropped_files(ctx);
         self.history_tick();
@@ -4761,6 +4957,7 @@ impl eframe::App for App {
         self.layers_panel(ctx);
         self.central(ctx, frame);
         self.windows(ctx);
+        self.quit_window(ctx);
     }
 }
 
@@ -5616,6 +5813,18 @@ fn paint_preview(p: &egui::Painter, rect: egui::Rect, solid: &Mesh, ghost: &Mesh
     );
 }
 
+/// The desktop's own recent list, except in tests, which keep their rows in a
+/// throwaway file so a test run never rewrites the real menu.
+#[cfg(not(test))]
+fn startup_recent() -> Recent {
+    Recent::load()
+}
+
+#[cfg(test)]
+fn startup_recent() -> Recent {
+    Recent::at(std::env::temp_dir().join("pinto-slicer-test-recent"))
+}
+
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -5900,6 +6109,76 @@ mod tests {
         assert!((app.models[0].transform.pos.x - original.pos.x - 25.0).abs() < 1e-4);
         assert_eq!(app.settings.exposure, 7.0);
         assert_world_matches_models(&app);
+    }
+
+    #[test]
+    fn a_quit_asks_about_changes_that_were_never_written() {
+        let mut app = App::new(Launch::default());
+        assert!(!app.unsaved_changes(), "an untouched plate is not a change");
+
+        // A move, a scale, a delete: whatever the tools do to the plate.
+        app.touched();
+        assert!(
+            app.unsaved_changes(),
+            "a plate that was worked on is unwritten"
+        );
+
+        let path = std::env::temp_dir().join("resin_slicer_quit_prompt.rslice");
+        let _ = std::fs::remove_file(&path);
+        app.quit_after_save = true;
+        app.start_project_save(path.clone());
+        for _ in 0..200 {
+            app.poll_project();
+            if app.project_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(!app.unsaved_changes(), "a save settles the question");
+        assert!(app.quit_now, "the window closes once the write lands");
+        app.quit_now = false;
+
+        app.record_change();
+        assert!(
+            app.unsaved_changes(),
+            "moving the plate after a save counts"
+        );
+
+        // Quitting without saving is the same question answered differently.
+        app.saved_serial = app.change_serial;
+        assert!(!app.unsaved_changes());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn recent_lists_what_was_opened_and_opens_it_again() {
+        let mut app = app_with_a_piece();
+        app.export.stem = "recent-project".into();
+        let path = std::env::temp_dir().join("resin_slicer_recent.rslice");
+        app.project().save(&path).unwrap();
+
+        let mut app = app_with_a_piece();
+        app.load_path(&path);
+        let remembered = std::fs::canonicalize(&path).unwrap();
+        assert_eq!(app.recent.paths().first(), Some(&remembered));
+        assert!(
+            !app.unsaved_changes(),
+            "a project that was just opened is not waiting to be saved"
+        );
+
+        // Opening the same file again must not add a second row.
+        let before = app.recent.paths().len();
+        app.load_path(&path);
+        assert_eq!(app.recent.paths().len(), before);
+
+        // A row whose file has gone is dropped, with a word on the plate.
+        let gone = std::env::temp_dir().join("resin_slicer_recent_gone.rslice");
+        app.recent.remember(&gone);
+        assert_eq!(app.recent.paths().first(), Some(&gone));
+        app.open_recent(&gone);
+        assert!(!app.recent.paths().contains(&gone));
+        assert!(app.status.contains("no longer on disk"), "{}", app.status);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

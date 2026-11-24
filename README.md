@@ -130,12 +130,14 @@ Use the **File** menu to save and reopen `.rslice` projects. Meshes are embedded
 | View / Move / Turn / Size tool | `W` / `G` / `R` / `S` |
 | Toggle the Transform panel | `V` |
 | Open models / Open project | `Ctrl+O` / `Ctrl+Shift+O` |
+| Open a recent file | File → Open recent |
 | Save project / Save project as | `Ctrl+S` / `Ctrl+Shift+S` |
 | Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` |
 | Duplicate selection | `Ctrl+D` |
 | Select all | `Ctrl+A` |
 | Delete selection | `Delete` or `Backspace` |
 | Cancel or clear the current interaction | `Esc` |
+| Quit (asks about unsaved changes) | `Ctrl+Q` |
 
 The navigation cube snaps the camera to six standard views. The Transform panel also provides numeric transforms, angle snapping, duplication, deletion, and axis mirroring.
 
