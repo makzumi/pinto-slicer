@@ -893,6 +893,18 @@ impl App {
         // Only the pieces that changed are rebuilt. A plate of a dozen pieces
         // is a million triangles, and a drag asks for this sixty times a
         // second: re-transforming all of it is what made moving crawl.
+        //
+        // A piece list that changed length (a delete, a load, an undo) shifts
+        // every index past the change, so the slot at index `i` was built from
+        // another piece even though that piece's own key still looks fresh.
+        // Reusing it leaves the picture showing the piece that was removed and
+        // the ones behind it one place off, which makes a click land on a
+        // neighbour: everything is rebuilt once instead.
+        if self.world.len() != self.models.len() {
+            for entry in &mut self.models {
+                entry.world_for = None;
+            }
+        }
         self.world.resize_with(self.models.len(), Mesh::default);
         for (i, entry) in self.models.iter_mut().enumerate() {
             let key = (
@@ -6093,6 +6105,59 @@ mod tests {
             .project(at)
             .expect("that point is in front of the camera");
         app.click_in_view(egui::pos2(x, y), w, h, false);
+    }
+
+    #[test]
+    fn removing_a_piece_leaves_the_drawn_plate_in_step_with_the_pieces() {
+        let mut app = app_with_a_piece();
+        make_room(&mut app);
+        app.selection = Selection::single(0);
+        app.duplicate_selected();
+        app.arrange_all(true);
+        assert!(app.models.len() >= 3, "need a middle piece to remove");
+        app.selection = Selection::single(1);
+        let gone = app.models[1].mesh.name.clone();
+        app.delete_selected();
+        assert!(
+            app.models.iter().all(|m| m.mesh.name != gone),
+            "the picked piece is the one that goes"
+        );
+        assert_world_matches_models(&app);
+    }
+
+    /// The report behind the fix: supports grown, everything deleted, back on
+    /// the prepare step, and then a click picks a neighbour of what the picture
+    /// shows, so the delete removes the wrong piece. The picture is drawn from
+    /// `world` and a click walks `models`; the two have to stay index for index.
+    #[test]
+    fn a_click_after_a_removal_picks_the_piece_the_picture_shows() {
+        let mut app = app_with_a_piece();
+        make_room(&mut app);
+        app.selection = Selection::single(0);
+        app.duplicate_selected();
+        app.arrange_all(true);
+        app.selection = Selection::single(0);
+        app.open_step(Tab::Supports);
+        app.start_supports_and_wait();
+        app.clear_supports();
+        app.open_step(Tab::Prepare);
+        app.selection = Selection::single(1);
+        let gone = app.models[1].mesh.name.clone();
+        app.delete_selected();
+        app.fit_view();
+        for i in 0..app.models.len() {
+            let (min, max) = app.world[i].bounds();
+            click_at(&mut app, (min + max) * 0.5);
+            assert_eq!(
+                app.selection.primary(),
+                Some(i),
+                "clicking piece {i} has to pick piece {i}, not a neighbour"
+            );
+        }
+        assert!(
+            app.models.iter().all(|m| m.mesh.name != gone),
+            "and the piece that went is still the picked one"
+        );
     }
 
     #[test]
