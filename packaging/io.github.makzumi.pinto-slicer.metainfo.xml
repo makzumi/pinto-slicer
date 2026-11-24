@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.12/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.13/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,15 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.13" date="2026-11-24">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.13</url>
+      <description>
+        <p>Picking the piece you see, after a piece has been removed.</p>
+        <ul>
+          <li>Removing a piece rebuilds the drawn plate, so a click and the delete that follows act on the same piece</li>
         </ul>
       </description>
     </release>

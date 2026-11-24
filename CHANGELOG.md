@@ -4,6 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-11-24
+
+### Fixed
+
+- **Deleting a piece no longer makes the picture and the picks disagree.** The drawn plate was only rebuilt for pieces whose own size or placement changed, so removing one shifted every slot behind it while the picture kept the old geometry: a click then landed on a neighbour, and the piece that disappeared was not the one that was picked. A piece list that changes length now rebuilds the whole plate.
+
 ## [0.1.12] - 2026-11-24
 
 ### Added
@@ -142,7 +148,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.13...HEAD
+[0.1.13]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.13
 [0.1.12]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.12
 [0.1.11]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.11
 [0.1.10]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.10
