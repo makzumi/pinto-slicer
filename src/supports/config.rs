@@ -83,6 +83,16 @@ impl Preset {
             Self::Heavy => "Heavy",
         }
     }
+
+    /// The density a preset lands on. The two rows have to agree: a preset
+    /// that highlights Medium while the tips sit at High spacing reads as a bug.
+    pub fn density(self) -> Density {
+        match self {
+            Self::Light => Density::Low,
+            Self::Medium => Density::Medium,
+            Self::Heavy => Density::High,
+        }
+    }
 }
 
 /// Three spacings between tips, for the panel's density row.
@@ -149,7 +159,7 @@ impl Default for SupportConfig {
         Self {
             preset: Preset::Medium,
             height_from_platform: 6.0,
-            touch_tip_distance: 4.0,
+            touch_tip_distance: Density::Medium.spacing(),
             overhang_angle_deg: 45.0,
             tip: TipConfig::default(),
             branch_angle_deg: 45.0,
@@ -170,9 +180,11 @@ impl SupportConfig {
             preset: p,
             ..Default::default()
         };
+        // The preset's spacing is its density, so the two rows in the panel
+        // cannot disagree after a preset is applied.
+        c.touch_tip_distance = p.density().spacing();
         match p {
             Preset::Light => {
-                c.touch_tip_distance = 5.0;
                 c.tip.lower_diameter = 1.0;
                 c.tip.upper_diameter = 0.5;
                 c.branch_diameter = 0.8;
@@ -182,7 +194,6 @@ impl SupportConfig {
             }
             Preset::Medium => {}
             Preset::Heavy => {
-                c.touch_tip_distance = 3.0;
                 c.tip.lower_diameter = 1.4;
                 c.tip.upper_diameter = 0.8;
                 c.branch_diameter = 1.1;
@@ -285,7 +296,7 @@ mod tests {
     fn the_defaults_match_the_reference_panel() {
         let c = SupportConfig::default();
         assert_eq!(c.height_from_platform, 6.0);
-        assert_eq!(c.touch_tip_distance, 4.0);
+        assert_eq!(c.touch_tip_distance, Density::Medium.spacing());
         assert_eq!(c.overhang_angle_deg, 45.0);
         assert_eq!(c.tip.upper_diameter, 0.6);
         assert_eq!(c.tip.lower_diameter, 1.2);
@@ -309,11 +320,26 @@ mod tests {
     }
 
     #[test]
+    fn a_preset_and_its_density_are_the_same_choice() {
+        for p in [Preset::Light, Preset::Medium, Preset::Heavy] {
+            assert_eq!(
+                SupportConfig::from_preset(p).touch_tip_distance,
+                p.density().spacing()
+            );
+        }
+        assert_eq!(
+            SupportConfig::default().touch_tip_distance,
+            Preset::Medium.density().spacing(),
+            "the default preset and the default density describe one setting"
+        );
+    }
+
+    #[test]
     fn derived_numbers_follow_the_tip_distance() {
         let c = SupportConfig::default();
         assert!((c.min_tip_spacing() - c.touch_tip_distance).abs() < 1e-4);
         assert!(c.max_unsupported_radius() > c.touch_tip_distance);
-        assert!((c.cluster_radius() - 10.0).abs() < 1e-4);
+        assert!((c.cluster_radius() - c.touch_tip_distance * 2.5).abs() < 1e-4);
     }
 
     #[test]
@@ -328,7 +354,7 @@ mod tests {
     fn settings_are_written_out_and_are_serde_ready() {
         let c = SupportConfig::default();
         let text = c.to_json();
-        assert!(text.contains("\"touch_tip_distance\": 4"));
+        assert!(text.contains("\"touch_tip_distance\": 6"));
         assert!(text.contains("\"plate_thickness\": 0.8"));
         // The serde derives exist, so any serde format can save and load it.
         fn serde_ready<T: serde::Serialize + serde::de::DeserializeOwned>() {}

@@ -4,6 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- The **Density** row moved into the top Support card, right under **Preset**, where it can be found without scrolling five cards down.
+- Presets now set the density too — Light 8 mm, Medium 6 mm, Heavy 4 mm — so the preset and the density row always agree. Moving the spacing away from a preset drops its highlight instead of leaving a lit button that describes other numbers.
+- The default spacing is 6 mm (Medium) instead of 4 mm, so a fresh plate grows about half as many supports as before.
+
 ## [0.1.9] - 2026-11-24
 
 ### Added

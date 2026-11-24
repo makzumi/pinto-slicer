@@ -741,18 +741,24 @@ mod tests {
 
     #[test]
     fn support_radius_follows_prusas_curve_and_density_timing() {
-        let mut cfg = SupportConfig::default();
-        assert_eq!(support_radius(0.0, &cfg), 3.2);
+        // The curve as published is the reference spacing's curve.
+        let mut cfg = SupportConfig {
+            touch_tip_distance: REFERENCE_TIP_SPACING,
+            ..Default::default()
+        };
+        assert!((support_radius(0.0, &cfg) - 3.2).abs() < 1e-4);
         assert!((support_radius(3.9, &cfg) - 4.0).abs() < 1e-4);
         assert!((support_radius(15.0, &cfg) - 5.0).abs() < 1e-4);
         assert!((support_radius(40.0, &cfg) - 6.0).abs() < 1e-4);
         assert!((support_radius(100.0, &cfg) - 6.0).abs() < 1e-4);
 
+        // A wider spacing scales the whole curve, height for height.
         cfg.touch_tip_distance = 8.0;
         assert!(
             (support_radius(0.0, &cfg) - 6.4).abs() < 1e-4,
             "the first layer scales with the spacing too"
         );
+        assert!((support_radius(3.9, &cfg) - 8.0).abs() < 1e-4);
         assert!((support_radius(40.0, &cfg) - 12.0).abs() < 1e-4);
     }
 }
