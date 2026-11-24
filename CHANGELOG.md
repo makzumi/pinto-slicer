@@ -4,9 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-24
+
 ### Added
 
 - **Playback speed and loop** on the Slice tab: a second row under the transport offers 0.5×, 1×, 2× and 4× (0.24 s to 0.03 s per layer), and a **Loop** switch chooses whether the last layer starts the plate over or brings playback to rest there. The old seconds-per-layer box is gone, so speed has one control rather than two.
+
 ## [0.1.11] - 2026-11-24
 
 ### Changed
@@ -139,7 +142,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.12
 [0.1.11]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.11
 [0.1.10]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.10
 [0.1.9]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.9
