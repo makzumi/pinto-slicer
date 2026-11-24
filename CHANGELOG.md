@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-24
+
 ### Added
 
 - **An orthographic lens** on the 3D view, chosen with the **Persp** and **Ortho** chips under the viewport's caption. Perspective is still the default; the orthographic view keeps every piece at the same size whatever its distance, and shows the plate as the flat, parallel projection measuring is easiest on. Both lenses frame the plate the same way, so the chips can be used mid-thought without the piece jumping.
@@ -160,7 +162,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.14...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.15...HEAD
+[0.1.15]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.15
 [0.1.14]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.14
 [0.1.13]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.13
 [0.1.12]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.12
