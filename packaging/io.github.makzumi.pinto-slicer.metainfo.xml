@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.21/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.22/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.22" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.22</url>
+      <description>
+        <p>The preview picture is a shaded 3-D view now, the way the printer's own previews look.</p>
+        <ul>
+          <li>The sliced spans are stacked as solid boxes, seen from a corner above and lit from the upper left.</li>
+          <li>Both preview sizes are drawn from one span walk, a fraction of the export's own cost.</li>
+          <li>A span whose contour never closes is dropped instead of streaking across the plate.</li>
         </ul>
       </description>
     </release>
