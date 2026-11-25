@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.20/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.21/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.21" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.21</url>
+      <description>
+        <p>A hollow's ceiling earns its own forest of supports.</p>
+        <ul>
+          <li>Coverage reaches only the slope a head belongs to, so a dome across a void grows its own columns.</li>
+          <li>Support generation is deterministic again: the island picker read candidates in hash order.</li>
+          <li>The cross-section's cut cap comes from the layer's own outlines — the texel grid is gone.</li>
         </ul>
       </description>
     </release>

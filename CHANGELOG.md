@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-11-25
+
 ### Fixed
 
 - A hollow's ceiling earns its own forest of supports again. The heads a
@@ -229,7 +231,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.20...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.21...HEAD
+[0.1.21]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.21
 [0.1.20]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.20
 [0.1.19]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.19
 [0.1.18]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.18
