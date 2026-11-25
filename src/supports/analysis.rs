@@ -22,8 +22,6 @@ pub const ANALYSIS_LAYER_HEIGHT: f32 = 0.1;
 const MIN_ANALYSIS_CELL: f32 = 0.25;
 const MAX_ANALYSIS_CELL: f32 = 0.5;
 const MAX_GRID_SIDE: usize = 512;
-const MAX_POINTS_PER_REGION: usize = 2048;
-const OVERHANG_SAMPLE_STEP: f32 = 2.0;
 const REMOVE_OUTSIDE_PART: f32 = 5.0;
 
 #[derive(Clone, Debug)]
@@ -84,6 +82,12 @@ struct Component {
 struct ActivePart {
     cells: Vec<usize>,
     supports: Vec<usize>,
+    /// The overhang coastline this part has accumulated over its layers, in
+    /// the spirit of Prusa's propagated coverage: a shallow band only peels
+    /// open a few cells per layer, so the ring is walked as one shape once
+    /// enough of it has arrived. Each cell carries the height it first
+    /// appeared at, so the walk can put a head on the surface it belongs to.
+    coast: Vec<(usize, f32)>,
 }
 
 pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &AtomicBool) -> Result {
@@ -138,7 +142,7 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
         }
 
         let z = slices.layers[layer_idx].z;
-        let components = components(current, grid, cancel);
+        let parts = components(current, grid, cancel);
         let mut previous_owner = vec![usize::MAX; current.len()];
         for (part_id, part) in previous_parts.iter().enumerate() {
             for &cell in &part.cells {
@@ -147,8 +151,8 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
         }
 
         let on_plate = model_on_plate && !saw_material;
-        let mut active_parts = Vec::with_capacity(components.len());
-        for component in components {
+        let mut active_parts = Vec::with_capacity(parts.len());
+        for component in parts {
             if cancel.load(Ordering::Relaxed) {
                 break;
             }
@@ -170,6 +174,13 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
                 .collect();
             supports.sort_unstable();
             supports.dedup();
+
+            let mut coast: Vec<(usize, f32)> = links
+                .iter()
+                .flat_map(|id| previous_parts[*id].coast.iter().copied())
+                .collect();
+            coast.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+            coast.dedup_by(|a, b| a.0 == b.0);
 
             // Prusa removes inherited points outside the current region. A
             // later, separate overhang at the same XY can then be supported
@@ -214,27 +225,61 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
                         &mut supports,
                     );
                 }
-                let overhang = unsupported_cells(&component, &previous, grid);
+                let overhang: Vec<usize> = unsupported_cells(&component, &previous, grid)
+                    .into_iter()
+                    .filter(|&cell| {
+                        // Only a cell whose surface fails the overhang angle
+                        // joins the band. The difference also contains the
+                        // one-cell steps a steep wall makes every few
+                        // layers; those need nothing, and letting them in
+                        // meant the walk spent itself proposing heads that
+                        // the angle gate then refused, over and over.
+                        let (cx, cy) = grid.point(cell % grid.w, cell / grid.w);
+                        let max_delta = (ANALYSIS_LAYER_HEIGHT * 2.0 + grid.cell).max(0.75);
+                        tree.downward_surface_near(cx, cy, z, max_delta)
+                            .map(|(_, normal)| normal.z <= overhang_limit(cfg) + 1e-4)
+                            .unwrap_or(false)
+                    })
+                    .collect();
                 if !overhang.is_empty() {
                     out.regions += 1;
-                    let samples = select_cells(
-                        &Component {
-                            center: component.center,
-                            min: component.min,
-                            max: component.max,
-                            cells: overhang,
-                        },
-                        grid,
-                        OVERHANG_SAMPLE_STEP * density_scale(cfg),
-                        true,
-                    );
+                    // The coastline is where the layer grew. Each layer only
+                    // peels a few cells open, so the walk runs over what the
+                    // part has accumulated — the whole band by the time it
+                    // finishes — and a head goes every tip distance along it,
+                    // the same walk the islands take. Per-layer-only sampling
+                    // starved thin bands (a rim ring earned one or two heads
+                    // a layer, and the coverage gate ate most of those) where
+                    // the reference slicer's grid plants a whole ring.
+                    coast.extend(overhang.iter().map(|&cell| (cell, z)));
+                    coast.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+                    coast.dedup_by(|a, b| a.0 == b.0);
+                    let mut band = vec![false; grid.w * grid.h];
+                    for &(cell, _) in &coast {
+                        band[cell] = true;
+                    }
+                    let z_of: std::collections::HashMap<usize, f32> =
+                        coast.iter().copied().collect();
+                    let spacing = cfg.touch_tip_distance.clamp(2.0, 24.0);
+                    let mut samples = Vec::new();
+                    for piece in components(&band, grid, cancel) {
+                        let path = trace_outline(&piece.cells, grid);
+                        samples.extend(sample_outline(&path, grid, spacing));
+                    }
                     for (x, y) in samples {
                         let (px, py) = grid.point(x, y);
-                        if covered(&supports, &out.contacts, px, py, z, cfg) {
+                        let cell = y * grid.w + x;
+                        // Each sample is a coast cell, so it knows the height
+                        // it appeared at. Asking there finds the surface the
+                        // band belongs to; asking at the current layer would
+                        // raycast past the part for cells that arrived long
+                        // ago.
+                        let sample_z = z_of.get(&cell).copied().unwrap_or(z);
+                        if covered(&out.contacts, px, py, sample_z, grid, cfg) {
                             continue;
                         }
                         if add_contact(
-                            Vec3::new(px, py, z),
+                            Vec3::new(px, py, sample_z),
                             false,
                             grid,
                             cfg,
@@ -251,6 +296,7 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
             active_parts.push(ActivePart {
                 cells: component.cells,
                 supports,
+                coast,
             });
         }
 
@@ -278,6 +324,12 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
 /// The spacing Prusa's coverage curve is calibrated for. Every other spacing
 /// scales the curve linearly from this one.
 pub const REFERENCE_TIP_SPACING: f32 = 4.0;
+
+/// The steepest downward normal that still counts as an overhang worth a
+/// head, straight from the panel's angle.
+fn overhang_limit(cfg: &SupportConfig) -> f32 {
+    -cfg.overhang_angle_deg.clamp(1.0, 89.0).to_radians().sin()
+}
 
 /// How much wider (or tighter) the spacing is than the reference curve.
 /// The clamp only guards against absurd settings; the panel's range is well
@@ -307,17 +359,29 @@ fn support_radius(z_distance: f32, cfg: &SupportConfig) -> f32 {
     6.0 * scale
 }
 
-fn covered(
-    supports: &[usize],
-    contacts: &[Contact],
-    x: f32,
-    y: f32,
-    z: f32,
-    cfg: &SupportConfig,
-) -> bool {
-    supports.iter().any(|id| {
-        let contact = &contacts[*id];
-        let radius = support_radius(z - contact.pos.z, cfg);
+fn covered(contacts: &[Contact], x: f32, y: f32, z: f32, grid: Grid, cfg: &SupportConfig) -> bool {
+    // The whole model's contacts, not just the ones this part inherited: a
+    // band cell can be far from where its part lives by now (a rim's cells
+    // stay in the band while the part has narrowed to a stem above them), and
+    // the head that already sits on that cell is just as real there.
+    contacts.iter().any(|contact| {
+        // The raycast snaps a contact onto the surface, which can sit a hair
+        // above the layer it was found on. Same-level contacts still cover —
+        // otherwise every candidate on that layer would slip past the gate
+        // and pile up on one spot.
+        let dz = (z - contact.pos.z).max(0.0);
+        // Only a contact close below claims the spot: its head was meant for
+        // this same stretch of overhang, so a new one nearby would stack on
+        // it. A contact far below does not — its column stops there, and the
+        // taller candidate gets a column of its own that the trunk merger
+        // welds to the older one. Counting far-below contacts as coverage
+        // starved whole rings that happened to float above an earlier one
+        // (a flange above a funnel earned one head instead of a ring).
+        let radius = if dz > ANALYSIS_LAYER_HEIGHT * 2.0 + grid.cell {
+            0.0
+        } else {
+            support_radius(dz, cfg)
+        };
         let dx = contact.pos.x - x;
         let dy = contact.pos.y - y;
         radius > 0.0 && dx * dx + dy * dy < radius * radius
@@ -632,88 +696,6 @@ fn components(mask: &[bool], grid: Grid, cancel: &AtomicBool) -> Vec<Component> 
     result
 }
 
-/// Deterministic farthest-point sampling. No fixed 64-point cap: a large
-/// island is sampled until its selected points cover the requested radius or
-/// the explicit safety budget is exhausted.
-fn select_cells(
-    component: &Component,
-    grid: Grid,
-    spacing: f32,
-    outline_only: bool,
-) -> Vec<(usize, usize)> {
-    let cells: Vec<usize> = if outline_only {
-        let membership: std::collections::HashSet<usize> =
-            component.cells.iter().copied().collect();
-        component
-            .cells
-            .iter()
-            .copied()
-            .filter(|idx| {
-                let x = idx % grid.w;
-                let y = idx / grid.w;
-                (-1..=1).any(|dy| {
-                    (-1..=1).any(|dx| {
-                        if dx == 0 && dy == 0 {
-                            return false;
-                        }
-                        let nx = x as i32 + dx;
-                        let ny = y as i32 + dy;
-                        nx < 0
-                            || ny < 0
-                            || nx >= grid.w as i32
-                            || ny >= grid.h as i32
-                            || !membership.contains(&(ny as usize * grid.w + nx as usize))
-                    })
-                })
-            })
-            .collect()
-    } else {
-        component.cells.clone()
-    };
-    if cells.is_empty() {
-        return Vec::new();
-    }
-    let area = cells.len() as f32 * grid.cell * grid.cell;
-    let spacing = spacing.max(grid.cell);
-    if area <= (spacing * 0.75).powi(2) {
-        return vec![nearest_cell(&cells, grid, component.center)];
-    }
-
-    let mut selected = vec![nearest_cell(&cells, grid, component.center)];
-    let max_points =
-        ((area / (spacing * spacing * 0.75)).ceil() as usize).clamp(2, MAX_POINTS_PER_REGION);
-    let reach = spacing.max(grid.cell * 1.5);
-    while selected.len() < max_points {
-        let mut best = None;
-        let mut best_distance = 0.0;
-        for &idx in &cells {
-            let x = idx % grid.w;
-            let y = idx / grid.w;
-            if selected.contains(&(x, y)) {
-                continue;
-            }
-            let distance = selected
-                .iter()
-                .map(|&(sx, sy)| {
-                    let dx = (sx as f32 - x as f32) * grid.cell;
-                    let dy = (sy as f32 - y as f32) * grid.cell;
-                    dx * dx + dy * dy
-                })
-                .fold(f32::MAX, f32::min);
-            if distance > best_distance {
-                best_distance = distance;
-                best = Some((x, y));
-            }
-        }
-        let Some(next) = best else { break };
-        if best_distance.sqrt() <= reach {
-            break;
-        }
-        selected.push(next);
-    }
-    selected
-}
-
 /// One head per spacing x spacing square that overlaps the component,
 /// sitting at the cell nearest the middle of its square. This is the
 /// count the column slicers actually place; the spread-out picker above
@@ -833,19 +815,6 @@ fn sample_outline(path: &[(usize, usize)], grid: Grid, spacing: f32) -> Vec<(usi
     }
     sampled
 }
-
-fn nearest_cell(cells: &[usize], grid: Grid, center: (f32, f32)) -> (usize, usize) {
-    cells
-        .iter()
-        .map(|idx| (*idx % grid.w, *idx / grid.w))
-        .min_by(|(ax, ay), (bx, by)| {
-            let da = (*ax as f32 - center.0).powi(2) + (*ay as f32 - center.1).powi(2);
-            let db = (*bx as f32 - center.0).powi(2) + (*by as f32 - center.1).powi(2);
-            da.total_cmp(&db)
-        })
-        .unwrap_or((0, 0))
-}
-
 fn downward_faces(meshes: &[Mesh], cfg: &SupportConfig, count: &mut usize) -> Mesh {
     let mut debug = Mesh::default();
     let limit = -cfg.overhang_angle_deg.clamp(1.0, 89.0).to_radians().sin();
