@@ -9,6 +9,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 - **One type scale and one pill shape for the whole window.** The panels had grown five near-duplicate text sizes (11.0 and 11.5, 12.0 and 12.5, 13.0 and 13.5) and three pill roundings (7, 8, 9). Titles sit at 10.5, notes at 11.5, body text and pills at 12.5, primary buttons at 13.5, and every pill is rounded 8.
 - **The help text is no longer a wall.** The How-to window's single run-on paragraph is split into short titled sections (In the view, Keyboard, The rest), and the phrase "the house under the orientation cube" now says the home button.
 - **Sentences count properly.** "3 piece(s) mirrored" style statuses now read "3 pieces mirrored", with a real singular for one. The export tab no longer tells you to open HALOT-X1 files with UVtools — it cannot read them yet; the printer can.
+- **The plate stays in 3D.** Opening the slice tab used to flip the view to the cut layers on its own; now it leaves the 3D view alone, and the **Slices** buttons are what flip it.
+- **The print settings live on the export tab.** Layer height and exposures sit next to the job file they describe, and the slice tab keeps a single column: the cross-section view, right where the settings used to be.
+- **Job files start where the project lives.** With a project saved or opened, the export dialog starts in its folder; without one, it starts on the desktop. The old `~/resin-job` default is gone.
+- **The version is in the title bar.** "Pinto Slicer (v0.1.19)" sits beside the app name, small and quiet.
+- **The supports row is tidy.** **Generate Supports** fills its row; **Delete all** and **Reset defaults** split the one below it, half each.
+- **No more shouting.** Card titles and window labels are sentence case: "WHERE THEY GROW" is "Where they grow", MOVE/TURN/SIZE became Move/Turn/Size, and the badge says "3D model", not "3D MODEL".
 
 ## [0.1.19] - 2026-11-25
 

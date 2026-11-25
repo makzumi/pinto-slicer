@@ -1788,6 +1788,7 @@ impl App {
                 self.project_path = Some(path.clone());
                 self.saved_serial = self.save_serial;
                 self.recent.remember(&path);
+                self.sync_export_dir(&path);
                 self.status = format!("Project saved to {}.", path.display());
                 if self.quit_after_save {
                     self.quit_after_save = false;
@@ -1807,6 +1808,7 @@ impl App {
                 self.history = Some(project::History::new(self.project()));
                 self.saved_serial = self.change_serial;
                 self.recent.remember(&path);
+                self.sync_export_dir(&path);
                 self.status = format!("Project opened from {}.", path.display());
             }
             Err(error) => {
@@ -2163,6 +2165,7 @@ impl App {
                     self.history = Some(project::History::new(self.project()));
                     self.saved_serial = self.change_serial;
                     self.recent.remember(path);
+                    self.sync_export_dir(path);
                     self.status = format!("Project opened from {}.", path.display());
                 }
                 Err(error) => self.status = error,
@@ -2659,6 +2662,11 @@ impl App {
                             .color(TEXT)
                             .strong(),
                     );
+                    ui.label(
+                        egui::RichText::new(format!("(v{})", env!("CARGO_PKG_VERSION")))
+                            .size(11.5)
+                            .color(MUTED),
+                    );
                     ui.add_space(12.0);
                     egui::menu::menu_button(ui, "File", |ui| {
                         if ui.button("Open models…  Ctrl+O").clicked() {
@@ -3009,15 +3017,18 @@ impl App {
 
     // ---------------------------------------------------------------- panels
 
-    /// Go to a step. Opening a step only sets the view up for it: the slice
-    /// step looks at layers, the others at the plate.
+    /// Go to a step. The plate keeps its 3D view; only the Slices buttons ask
+    /// for layers, and switching steps pauses the layer playback.
     fn open_step(&mut self, step: Tab) {
         self.cancel_gesture();
         self.tab = step;
-        if step == Tab::Slice {
-            self.mode = ViewMode::Sliced;
-        } else {
-            self.playback.playing = false;
+        self.playback.playing = false;
+    }
+
+    /// A project knows where it lives, so the job file follows it there.
+    fn sync_export_dir(&mut self, path: &Path) {
+        if let Some(dir) = path.parent() {
+            self.export.dir = dir.display().to_string();
         }
     }
 
@@ -3107,7 +3118,7 @@ impl App {
 
     fn prepare_tab(&mut self, ui: &mut egui::Ui) {
         let mut printer_changed = false;
-        card(ui, "PRINTER", |ui| {
+        card(ui, "Printer", |ui| {
             self.printer_picker(ui, "printer_prepare", ui.available_width() - 8.0);
             if ui
                 .add(
@@ -3189,7 +3200,7 @@ impl App {
             self.touched();
         }
 
-        card(ui, "LAYOUT", |ui| {
+        card(ui, "Layout", |ui| {
             ui.label(
                 egui::RichText::new(
                     "Spread the pieces out in a tidy grid, with room to peel them off the plate.",
@@ -3251,7 +3262,7 @@ impl App {
             );
         });
 
-        card(ui, "PLACEMENT", |ui| {
+        card(ui, "Placement", |ui| {
             if self.models.is_empty() {
                 ui.label(
                     egui::RichText::new("Nothing on the plate yet.")
@@ -3483,7 +3494,7 @@ impl App {
             }
         });
 
-        card(ui, "ON THE PLATE", |ui| {
+        card(ui, "On the plate", |ui| {
             if self.models.is_empty() {
                 ui.label(
                     egui::RichText::new("No models loaded.")
@@ -3548,7 +3559,7 @@ impl App {
         let mut reset_defaults = false;
 
         // ------------------------------------------------------------ top
-        card(ui, "SUPPORTS", |ui| {
+        card(ui, "Supports", |ui| {
             let was_on = self.settings.supports.enabled;
             ui.checkbox(
                 &mut self.settings.supports.enabled,
@@ -3690,35 +3701,39 @@ impl App {
             ui.add_space(4.0);
             let can_grow = self.settings.supports.enabled && self.support_job.is_none();
             let grown = !self.support.is_empty();
+            ui.add_enabled_ui(can_grow, |ui| {
+                if accent_button(ui, "Generate Supports", ui.available_width()) {
+                    auto_all = true;
+                }
+            });
             ui.horizontal(|ui| {
-                ui.add_enabled_ui(can_grow, |ui| {
-                    if accent_button(ui, "Generate Supports", 158.0) {
-                        auto_all = true;
-                    }
-                });
+                let half = ((ui.available_width() - 6.0) * 0.5).max(50.0);
                 ui.add_enabled_ui(grown, |ui| {
                     if ui
                         .add(
                             egui::Button::new(egui::RichText::new("Delete all").size(12.5))
                                 .fill(PILL)
                                 .rounding(egui::Rounding::same(8.0))
-                                .min_size(egui::vec2(96.0, 26.0)),
+                                .min_size(egui::vec2(half, 26.0)),
                         )
                         .clicked()
                     {
                         delete_all = true;
                     }
                 });
-            });
-            ui.horizontal(|ui| {
-                if pill_button(ui, "Reset defaults", false, egui::vec2(126.0, 24.0)) {
+                if pill_button(
+                    ui,
+                    "Reset defaults",
+                    false,
+                    egui::vec2(ui.available_width(), 26.0),
+                ) {
                     reset_defaults = true;
                 }
             });
         });
 
         // ------------------------------------------------- height from platform
-        card(ui, "HEIGHT FROM PLATFORM", |ui| {
+        card(ui, "Height from platform", |ui| {
             support_preview(ui, &self.settings.supports, SupportPreview::Height);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 let gap = ui
@@ -3769,7 +3784,7 @@ impl App {
         });
 
         // ------------------------------------------------------------- base
-        card(ui, "BASE", |ui| {
+        card(ui, "Base", |ui| {
             support_preview(ui, &self.settings.supports, SupportPreview::Base);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 let add = ui
@@ -3837,7 +3852,7 @@ impl App {
         });
 
         // --------------------------------------------------------- one tip
-        card(ui, "ONE TIP", |ui| {
+        card(ui, "One tip", |ui| {
             support_preview(ui, &self.settings.supports, SupportPreview::Tip);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 ui.horizontal(|ui| {
@@ -3938,7 +3953,7 @@ impl App {
         });
 
         // ------------------------------------------------- where they grow
-        card(ui, "WHERE THEY GROW", |ui| {
+        card(ui, "Where they grow", |ui| {
             support_preview(ui, &self.settings.supports, SupportPreview::Grow);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 changed |= ui
@@ -3968,7 +3983,7 @@ impl App {
         });
 
         // ------------------------------------------------- branches & trunks
-        card(ui, "BRANCHES & TRUNKS", |ui| {
+        card(ui, "Branches & trunks", |ui| {
             support_preview(ui, &self.settings.supports, SupportPreview::Branch);
             ui.add_enabled_ui(self.settings.supports.enabled, |ui| {
                 changed |= ui
@@ -4000,7 +4015,7 @@ impl App {
             });
         });
 
-        card(ui, "LAST RUN", |ui| {
+        card(ui, "Last run", |ui| {
             let note = if self.support_note.is_empty() {
                 "Nothing generated yet.".to_string()
             } else {
@@ -4059,8 +4074,7 @@ impl App {
     }
 
     fn slice_tab(&mut self, ui: &mut egui::Ui) {
-        let mut changed = false;
-        card(ui, "VIEW", |ui| {
+        card(ui, "View", |ui| {
             let width = ((ui.available_width() - 6.0) * 0.5).max(50.0);
             ui.horizontal(|ui| {
                 if pill_button(
@@ -4082,95 +4096,49 @@ impl App {
             });
         });
 
-        card(ui, "LAYER & EXPOSURE", |ui| {
-            let slider_width = ui.available_width();
-            let slider = |ui: &mut egui::Ui,
-                          value: &mut f32,
-                          range: std::ops::RangeInclusive<f32>,
-                          text: &str,
-                          suffix: &str,
-                          step: f32,
-                          changed: &mut bool| {
-                *changed |= ui
-                    .add_sized(
-                        egui::vec2(slider_width, 24.0),
-                        egui::Slider::new(value, range)
-                            .text(text)
-                            .suffix(suffix)
-                            .step_by(step as f64),
-                    )
-                    .changed();
-            };
-            slider(
-                ui,
-                &mut self.settings.layer_height,
-                0.01..=0.2,
-                "Layer height",
-                " mm",
-                0.005,
-                &mut changed,
-            );
-            slider(
-                ui,
-                &mut self.settings.bottom_exposure,
-                5.0..=90.0,
-                "Initial exposure",
-                " s",
-                0.5,
-                &mut changed,
-            );
-            slider(
-                ui,
-                &mut self.settings.exposure,
-                0.5..=15.0,
-                "Exposure time",
-                " s",
-                0.1,
-                &mut changed,
-            );
-            slider(
-                ui,
-                &mut self.settings.rising_height,
-                0.0..=40.0,
-                "Rising height",
-                " mm",
-                0.5,
-                &mut changed,
-            );
-            slider(
-                ui,
-                &mut self.settings.motor_speed,
-                20.0..=600.0,
-                "Motor speed",
-                " mm/min",
-                5.0,
-                &mut changed,
-            );
-            slider(
-                ui,
-                &mut self.settings.light_off_delay,
-                0.0..=20.0,
-                "Light-off delay",
-                " s",
-                0.1,
-                &mut changed,
-            );
-            changed |= ui
-                .add_sized(
-                    egui::vec2(slider_width, 24.0),
-                    egui::Slider::new(&mut self.settings.bottom_layers, 0..=20)
-                        .text("Bottom exposure layers"),
-                )
-                .changed();
+        card(ui, "Cross-section view", |ui| {
+            if self.slice.is_none() {
+                ui.label(
+                    egui::RichText::new("Nothing is sliced yet.")
+                        .size(12.5)
+                        .color(MUTED),
+                );
+                return;
+            }
+            self.layer_preview(ui);
+            let n = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
+            let cur = self.current_layer.min(n.saturating_sub(1));
+            let z = self
+                .slice
+                .as_ref()
+                .map(|s| s.layers.get(cur).map(|l| l.z).unwrap_or(0.0))
+                .unwrap_or(0.0);
+            ui.add_space(5.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("layer {} of {}", cur + 1, n))
+                        .size(11.5)
+                        .color(TEXT),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(
+                        egui::RichText::new(format!("{z:.2} mm"))
+                            .size(11.5)
+                            .color(MUTED),
+                    );
+                });
+            });
+            if self.playback.playing {
+                ui.label(egui::RichText::new("playing").size(10.5).color(ACCENT));
+            }
         });
 
-        card(ui, "SLICE", |ui| {
+        card(ui, "Slice", |ui| {
             let slicing = self.slice_job.is_some();
             let growing = self.support_job.is_some();
             ui.add_enabled_ui(!slicing && !growing, |ui| {
                 if accent_button(ui, "Slice now", ui.available_width()) {
                     self.start_slice();
-                    self.mode = ViewMode::Sliced;
                 }
             });
             if slicing {
@@ -4209,64 +4177,6 @@ impl App {
                 });
             }
         });
-
-        if changed {
-            self.settings_touched();
-        }
-    }
-
-    /// Step 3's other half: the picture the screen would show for the layer
-    /// under the transport, beside the plate instead of under it.
-    fn layers_panel(&mut self, ctx: &egui::Context) {
-        if self.tab != Tab::Slice {
-            return;
-        }
-        egui::SidePanel::right("layers")
-            .exact_width(330.0)
-            .resizable(true)
-            .frame(
-                egui::Frame::none()
-                    .fill(BG)
-                    .inner_margin(egui::Margin::symmetric(10.0, 10.0)),
-            )
-            .show(ctx, |ui| {
-                card(ui, "CROSS-SECTION VIEW", |ui| {
-                    if self.slice.is_none() {
-                        ui.label(
-                            egui::RichText::new("Nothing is sliced yet.")
-                                .size(12.5)
-                                .color(MUTED),
-                        );
-                        return;
-                    }
-                    self.layer_preview(ui);
-                    let n = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
-                    let cur = self.current_layer.min(n.saturating_sub(1));
-                    let z = self
-                        .slice
-                        .as_ref()
-                        .map(|s| s.layers.get(cur).map(|l| l.z).unwrap_or(0.0))
-                        .unwrap_or(0.0);
-                    ui.add_space(5.0);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            egui::RichText::new(format!("layer {} of {}", cur + 1, n))
-                                .size(11.5)
-                                .color(TEXT),
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(
-                                egui::RichText::new(format!("{z:.2} mm"))
-                                    .size(11.5)
-                                    .color(MUTED),
-                            );
-                        });
-                    });
-                    if self.playback.playing {
-                        ui.label(egui::RichText::new("playing").size(10.5).color(ACCENT));
-                    }
-                });
-            });
     }
 
     /// The mask of the layer on show, one byte per texel, or nothing when the
@@ -4349,6 +4259,7 @@ impl App {
     }
 
     fn export_tab(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
         let printer = &self.printers[self.printer_idx];
         let output_format = self
             .export
@@ -4366,7 +4277,7 @@ impl App {
             let layers = self.slice.as_ref().map(|s| s.layers.len()).unwrap_or(0);
             !busy && layers > 0 && !self.out_of_date() && !self.picker.busy()
         };
-        card(ui, "JOB FILE", |ui| {
+        card(ui, "Job file", |ui| {
             ui.label(
                 egui::RichText::new(output_format.label())
                     .size(13.5)
@@ -4446,7 +4357,89 @@ impl App {
             );
         });
 
-        card(ui, "EXPORT", |ui| {
+        card(ui, "Layer & exposure", |ui| {
+            let slider_width = ui.available_width();
+            let slider = |ui: &mut egui::Ui,
+                          value: &mut f32,
+                          range: std::ops::RangeInclusive<f32>,
+                          text: &str,
+                          suffix: &str,
+                          step: f32,
+                          changed: &mut bool| {
+                *changed |= ui
+                    .add_sized(
+                        egui::vec2(slider_width, 24.0),
+                        egui::Slider::new(value, range)
+                            .text(text)
+                            .suffix(suffix)
+                            .step_by(step as f64),
+                    )
+                    .changed();
+            };
+            slider(
+                ui,
+                &mut self.settings.layer_height,
+                0.01..=0.2,
+                "Layer height",
+                " mm",
+                0.005,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.bottom_exposure,
+                5.0..=90.0,
+                "Initial exposure",
+                " s",
+                0.5,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.exposure,
+                0.5..=15.0,
+                "Exposure time",
+                " s",
+                0.1,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.rising_height,
+                0.0..=40.0,
+                "Rising height",
+                " mm",
+                0.5,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.motor_speed,
+                20.0..=600.0,
+                "Motor speed",
+                " mm/min",
+                5.0,
+                &mut changed,
+            );
+            slider(
+                ui,
+                &mut self.settings.light_off_delay,
+                0.0..=20.0,
+                "Light-off delay",
+                " s",
+                0.1,
+                &mut changed,
+            );
+            changed |= ui
+                .add_sized(
+                    egui::vec2(slider_width, 24.0),
+                    egui::Slider::new(&mut self.settings.bottom_layers, 0..=20)
+                        .text("Bottom exposure layers"),
+                )
+                .changed();
+        });
+
+        card(ui, "Export", |ui| {
             let busy = self.export.rx.is_some();
             let fresh = !self.out_of_date();
             if !fresh {
@@ -4496,6 +4489,9 @@ impl App {
                 .color(WARN),
             );
         });
+        if changed {
+            self.settings_touched();
+        }
     }
 
     fn central(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
@@ -4715,8 +4711,8 @@ impl App {
 
                 // a small floating badge instead of a plain caption
                 let text = match self.mode {
-                    ViewMode::Solid => "3D MODEL",
-                    ViewMode::Sliced => "SLICED LAYERS",
+                    ViewMode::Solid => "3D model",
+                    ViewMode::Sliced => "Sliced layers",
                 };
                 badge(&painter, rect.left_top() + egui::vec2(12.0, 12.0), text);
                 // The lens sits with the badge it belongs to, so the two read
@@ -4885,7 +4881,7 @@ impl App {
                 ui.add_space(4.0);
                 placement_changed |= values_row(
                     ui,
-                    "MOVE",
+                    "Move",
                     [&mut t.pos.x, &mut t.pos.y, &mut t.pos.z],
                     0.5,
                     " mm",
@@ -4893,7 +4889,7 @@ impl App {
                 ui.add_space(3.0);
                 placement_changed |= values_row(
                     ui,
-                    "TURN",
+                    "Turn",
                     [&mut t.rot_deg.x, &mut t.rot_deg.y, &mut t.rot_deg.z],
                     1.0,
                     "°",
@@ -4917,7 +4913,7 @@ impl App {
                 ui.add_space(3.0);
                 let before = t.scale;
                 let (mut sx, mut sy, mut sz) = (t.scale.x, t.scale.y, t.scale.z);
-                if values_row(ui, "SIZE", [&mut sx, &mut sy, &mut sz], 0.01, "×") {
+                if values_row(ui, "Size", [&mut sx, &mut sy, &mut sz], 0.01, "×") {
                     t.scale = edited_scale(before, Vec3::new(sx, sy, sz), uniform_scale);
                     changed = true;
                 }
@@ -5009,7 +5005,7 @@ impl App {
                     return;
                 }
                 ui.add_space(5.0);
-                small_label(ui, "ALIGN TO THE SELECTION BOUNDS");
+                small_label(ui, "Align to the selection bounds");
                 for (axis, name, actions) in [
                     (
                         0,
@@ -5054,7 +5050,7 @@ impl App {
                 }
                 ui.add_space(5.0);
                 ui.separator();
-                small_label(ui, "DISTRIBUTE CENTRES");
+                small_label(ui, "Distribute centres");
                 ui.label(
                     egui::RichText::new("Keep the two outer centres fixed on X or Y.")
                         .size(11.5)
@@ -5071,7 +5067,7 @@ impl App {
                 });
                 ui.add_space(5.0);
                 ui.separator();
-                small_label(ui, "EQUAL GAPS");
+                small_label(ui, "Equal gaps");
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Gap").size(11.5).color(MUTED));
                     if ui
@@ -5233,7 +5229,6 @@ impl eframe::App for App {
         }
         self.shortcuts(ctx);
         self.side_panel(ctx);
-        self.layers_panel(ctx);
         self.central(ctx, frame);
         self.windows(ctx);
         self.quit_window(ctx);
@@ -6238,9 +6233,19 @@ fn folder_models(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// Where a job file is first offered: the desktop, or the home folder when
+/// there is none. A project that has been saved or opened wins over this —
+/// its folder is where the job belongs.
 fn default_export_dir() -> String {
     match home_dir() {
-        Some(h) => h.join("resin-job").display().to_string(),
+        Some(h) => {
+            let desktop = h.join("Desktop");
+            if desktop.is_dir() {
+                desktop.display().to_string()
+            } else {
+                h.display().to_string()
+            }
+        }
         None => "resin-job".to_string(),
     }
 }
@@ -6658,6 +6663,46 @@ mod tests {
         assert!(!app.recent.paths().contains(&gone));
         assert!(app.status.contains("no longer on disk"), "{}", app.status);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn the_job_file_starts_where_the_project_lives() {
+        let mut app = app_with_a_piece();
+
+        // With no project yet, the desktop is the first offer, or the home
+        // folder on a machine without one.
+        match home_dir() {
+            Some(h) => {
+                let expected = if h.join("Desktop").is_dir() {
+                    h.join("Desktop")
+                } else {
+                    h
+                };
+                assert_eq!(app.export.dir, expected.display().to_string());
+            }
+            None => assert_eq!(app.export.dir, "resin-job"),
+        }
+
+        // An opened project tells the job file where to live.
+        let path = std::env::temp_dir().join("resin_slicer_export_dir.rslice");
+        app.project().save(&path).unwrap();
+        app.load_path(&path);
+        assert_eq!(app.export.dir, std::env::temp_dir().display().to_string());
+
+        // So does a save to a new place.
+        let folder = std::env::temp_dir().join("resin_slicer_export_dir_project");
+        std::fs::create_dir_all(&folder).unwrap();
+        app.start_project_save(folder.join("moved.rslice"));
+        for _ in 0..200 {
+            app.poll_project();
+            if app.project_job.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(app.export.dir, folder.display().to_string());
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&folder);
     }
 
     #[test]
