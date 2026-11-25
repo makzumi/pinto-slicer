@@ -11,6 +11,11 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
   values really do change, the Export tab says so and offers a
   Slice again button, so being stale never strands the tab.
 
+### Fixed
+
+- The configuration tooltip no longer shows stray backslashes with lines
+  that break mid-sentence: it is one flowing sentence again.
+
 ### Changed
 
 - The configuration rows line up like a list: names start at the left edge

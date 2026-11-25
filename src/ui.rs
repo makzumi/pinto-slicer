@@ -3169,8 +3169,8 @@ impl App {
                         |ui| self.config_menu(ui),
                     );
                     config.response.on_hover_text(
-                        "Name the supports and export settings under a configuration, and load \\
-                         them back in any project. Default is the built-in profile; your own \\
+                        "Name the supports and export settings under a configuration, and load \
+                         them back in any project. Default is the built-in profile; your own \
                          rows sit under it.",
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
