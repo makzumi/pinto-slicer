@@ -267,9 +267,13 @@ impl Default for PrintSettings {
             exposure: 2.5,
             bottom_layers: 5,
             bottom_exposure: 35.0,
-            rising_height: 6.0,
-            motor_speed: 240.0,
-            light_off_delay: 0.5,
+            // The motion profile the printer's own Default resin uses: an 8 mm
+            // rise at 250 mm/min, then 4 s of settle before each cure. The
+            // weaker 6/240/0.5 defaults peeled supports off mid-print on a
+            // full plate.
+            rising_height: 8.0,
+            motor_speed: 250.0,
+            light_off_delay: 4.0,
             supports: crate::supports::SupportConfig::default(),
         }
     }

@@ -207,10 +207,10 @@ mod tests {
                     let file = msla_format::ctb::File::deserialize(&mut des).unwrap();
                     assert_eq!(file.layers.len(), sl.layers.len());
                     assert_eq!((file.resolution.x, file.resolution.y), (96, 64));
-                    assert_eq!(file.lift_speed.raw(), 240.0);
-                    assert_eq!(file.retract_speed.raw(), 240.0);
-                    assert_eq!(file.light_off_delay.raw(), 0.5);
-                    assert_eq!(file.layers[0].light_off_delay.raw(), 0.5);
+                    assert_eq!(file.lift_speed.raw(), 250.0);
+                    assert_eq!(file.retract_speed.raw(), 250.0);
+                    assert_eq!(file.light_off_delay.raw(), 4.0);
+                    assert_eq!(file.layers[0].light_off_delay.raw(), 4.0);
                     assert_eq!(file.bottom_lift_height_2.raw(), 0.0);
                 }
                 JobFormat::Goo => {
@@ -220,10 +220,10 @@ mod tests {
                         (file.header.x_resolution, file.header.y_resolution),
                         (96, 64)
                     );
-                    assert_eq!(file.header.lift_speed.raw(), 240.0);
-                    assert_eq!(file.header.retract_speed.raw(), 240.0);
-                    assert_eq!(file.header.turn_off_time.raw(), 0.5);
-                    assert_eq!(file.layers[0].layer_off_time.raw(), 0.5);
+                    assert_eq!(file.header.lift_speed.raw(), 250.0);
+                    assert_eq!(file.header.retract_speed.raw(), 250.0);
+                    assert_eq!(file.header.turn_off_time.raw(), 4.0);
+                    assert_eq!(file.layers[0].layer_off_time.raw(), 4.0);
                 }
                 _ => unreachable!(),
             }
