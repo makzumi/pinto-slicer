@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.22/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.23/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,18 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.23" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.23</url>
+      <description>
+        <p>Settings can be named and called back.</p>
+        <ul>
+          <li>The Configuration menu by the steps saves the supports and export settings under any name, in any project.</li>
+          <li>Default stays the built-in profile; rows are removed with an × that asks first.</li>
+          <li>Switching away with changes up asks whether to update the row, save as new, or discard.</li>
+          <li>Open recent is two lists now: models and projects apart.</li>
         </ul>
       </description>
     </release>
