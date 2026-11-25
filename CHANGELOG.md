@@ -4,6 +4,10 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Fixed
+
+- **The printer can say how much resin a print needs.** The file left the volume, weight and cost slots at zero, so the printer announced 0.00 ml and there was no way to tell a working file from an empty one. The volume is now counted off the layer masks themselves, every lit pixel being a voxel of cured resin, and the weight follows at 1.1 g per millilitre, the density Creality's own numbers round to.
+
 ## [0.1.18] - 2026-11-25
 
 ### Fixed

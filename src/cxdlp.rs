@@ -43,6 +43,15 @@ const MODEL_SIZE_BYTES: u32 = 12;
 const PREVIEW_SIZE: usize = 32;
 const PREVIEW_SMALL: usize = 120;
 const PREVIEW_LARGE: usize = 300;
+/// HALOT Box's own file says 1.619 ml weighs 1.781 g, which is 1.1 g/ml —
+/// the density every resin quote rounds to anyway.
+const RESIN_GRAMS_PER_ML: f32 = 1.1;
+
+/// Round to the three decimals the Creality slots carry, so our numbers read
+/// back the way theirs do.
+fn round3(v: f32) -> f32 {
+    (v * 1000.0).round() / 1000.0
+}
 
 fn be16(w: &mut impl Write, v: u16) -> std::io::Result<()> {
     w.write_all(&v.to_be_bytes())
@@ -411,9 +420,9 @@ fn write_v4_params(
         lift,  // normal lift height
         speed, // normal lift speed
         speed, // retract speed
-        0.0,   // volume (ml)
-        0.0,   // weight (g)
-        0.0,   // cost
+        0.0,   // volume (ml): filled in after the pixels are counted
+        0.0,   // weight (g): filled in with the volume
+        0.0,   // cost: no resin price is set anywhere, so it stays empty
         settings.light_off_delay,
         settings.light_off_delay,
     ] {
@@ -538,8 +547,13 @@ pub fn write_v4(
 
     let mut definitions = Vec::with_capacity(total);
     let mut buf = Vec::new();
+    // Every lit pixel is a voxel of cured resin, so the volume the printer
+    // should announce comes straight off the masks. Counting while the layers
+    // stream keeps the estimate in step with what the file actually cures.
+    let mut lit_pixels: u64 = 0;
     for (i, layer) in slice.layers.iter().enumerate() {
         formats::mask(layer, printer, res, &mut buf);
+        lit_pixels += buf.iter().filter(|v| **v != 0).count() as u64;
         let encoded = if x1 {
             pixel_pair_rle(&buf, res.0)?
         } else {
@@ -565,10 +579,24 @@ pub fn write_v4(
         }
     }
 
+    // The parameters block was written before the pixels existed, so the
+    // resin estimate goes in now, through the same seek-and-rewrite the
+    // header and the layer table already use. HALOT Box puts the volume, the
+    // weight and a price there; with no price configured the cost stays zero.
+    let data_end = file.stream_position().map_err(|e| formats::io(path, e))?;
+    let pixel_mm2 = (printer.build[0].max(0.0) / res.0.max(1) as f32)
+        * (printer.build[1].max(0.0) / res.1.max(1) as f32);
+    let volume_ml = round3(lit_pixels as f32 * pixel_mm2 * slice.layer_height / 1000.0);
+    file.seek(SeekFrom::Start(params_offset as u64 + 20))
+        .map_err(|e| formats::io(path, e))?;
+    lef(&mut file, volume_ml).map_err(|e| formats::io(path, e))?;
+    lef(&mut file, round3(volume_ml * RESIN_GRAMS_PER_ML)).map_err(|e| formats::io(path, e))?;
+    file.seek(SeekFrom::Start(data_end))
+        .map_err(|e| formats::io(path, e))?;
+
     // HALOT Box repeats every layer's motion block once more, as a table after
     // the pixel data. Nothing documents it, but the printer reads its own
     // files, so the shape has to match.
-    let data_end = file.stream_position().map_err(|e| formats::io(path, e))?;
     for _ in 0..total {
         write_layer_motion(&mut file, settings).map_err(|e| formats::io(path, e))?;
     }
@@ -979,6 +1007,27 @@ mod tests {
             PrintSettings::default().exposure,
             "the normal exposure sits in the last slot, like HALOT Box"
         );
+        // The resin estimate counts what the file actually cures: decode every
+        // layer back out of its own records and the volume has to match.
+        let mut lit: u64 = 0;
+        for i in 0..count {
+            let record = table + i * LAYER_RECORD_SIZE;
+            let data =
+                u32::from_le_bytes(bytes[record + 12..record + 16].try_into().unwrap()) as usize;
+            let size =
+                u32::from_le_bytes(bytes[record + 16..record + 20].try_into().unwrap()) as usize;
+            let pixels =
+                decode_pixel_pair(&bytes[data + LAYER_DEF_EX_SIZE..data + size], 96, 64).unwrap();
+            lit += pixels.iter().filter(|v| **v != 0).count() as u64;
+        }
+        let printer = &default_printers()[0];
+        let pixel_mm2 = printer.build[0] / 96.0 * printer.build[1] / 64.0;
+        let expected = round3(lit as f32 * pixel_mm2 * sl.layer_height / 1000.0);
+        let volume = f32::from_le_bytes(bytes[params_at + 20..params_at + 24].try_into().unwrap());
+        let weight = f32::from_le_bytes(bytes[params_at + 24..params_at + 28].try_into().unwrap());
+        assert!(expected > 0.0, "the sample cures something");
+        assert_eq!(volume, expected, "the volume matches the cured pixels");
+        assert_eq!(weight, round3(expected * RESIN_GRAMS_PER_ML));
         if std::env::var_os("KEEP_FORMAT_SAMPLES").is_none() {
             let _ = std::fs::remove_file(path);
         }
