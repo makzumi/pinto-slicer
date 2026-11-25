@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-11-24
+
 ### Fixed
 
 - **Files the HALOT-X1 accepts.** HALOT Box lays every layer out in a 120-byte record, puts two thumbnails and a twelve-byte model size into the file, and repeats the motion settings after the pixel data; ours carried none of that, so the printer turned its nose up at files another slicer wrote. The writer now follows Creality's layout, including the zero anti-alias level this machine writes and both previews, so the plate shows up on the printer's screen before it starts.
@@ -177,7 +179,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.16...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.17...HEAD
+[0.1.17]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.17
 [0.1.16]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.16
 [0.1.15]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.15
 [0.1.14]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.14

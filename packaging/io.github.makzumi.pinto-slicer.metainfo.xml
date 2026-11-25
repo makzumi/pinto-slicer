@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.16/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.17/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.17" date="2026-11-24">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.17</url>
+      <description>
+        <p>Files the printer is willing to read.</p>
+        <ul>
+          <li>Layers are laid out in the 120 byte records HALOT Box writes</li>
+          <li>The plate preview shows on the printer screen before a print</li>
+          <li>The motion settings are repeated after the pixels, as Creality does</li>
         </ul>
       </description>
     </release>
