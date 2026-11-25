@@ -4,15 +4,14 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-11-25
+
 ### Fixed
 
 - Saving or loading a configuration no longer greys out the export. Loading
   a row that already matches the panels keeps the slice fresh, and when the
   values really do change, the Export tab says so and offers a
   Slice again button, so being stale never strands the tab.
-
-### Fixed
-
 - The configuration tooltip no longer shows stray backslashes with lines
   that break mid-sentence: it is one flowing sentence again.
 
@@ -284,7 +283,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.23...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.24...HEAD
+[0.1.24]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.24
 [0.1.23]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.23
 [0.1.22]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.22
 [0.1.21]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.21
