@@ -20,7 +20,7 @@ pub enum ContactShape {
     Ball,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TipConfig {
     pub shape: TipShape,
     /// Touches the model.
@@ -48,7 +48,7 @@ impl Default for TipConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BaseConfig {
     /// Add a base plate under the feet at all.
     pub enabled: bool,
@@ -117,7 +117,7 @@ impl Density {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SupportConfig {
     /// Which preset the numbers came from, for the panel's highlight.
     pub preset: Preset,

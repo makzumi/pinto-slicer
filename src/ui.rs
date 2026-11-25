@@ -1842,31 +1842,44 @@ impl App {
     fn apply_config(&mut self, target: Option<String>) {
         // Loading a row settles any question that was up about it.
         self.config_prompt = None;
-        let preset = match &target {
-            Some(name) => self.presets.find(name).cloned(),
-            None => None,
+        let (print, format, also_masks, status, active) = match &target {
+            Some(name) => match self.presets.find(name) {
+                Some(p) => (
+                    p.print.clone(),
+                    p.format,
+                    p.also_masks,
+                    format!("Configuration '{}' loaded.", p.name),
+                    Some(p.name.clone()),
+                ),
+                None => (
+                    PrintSettings::default(),
+                    None,
+                    false,
+                    "That configuration is gone; Default loaded.".into(),
+                    None,
+                ),
+            },
+            None => (
+                PrintSettings::default(),
+                None,
+                false,
+                "Default configuration loaded.".into(),
+                None,
+            ),
         };
-        match preset {
-            Some(p) => {
-                self.settings = p.print;
-                self.export.format = p.format;
-                self.export.also_masks = p.also_masks;
-                self.status = format!("Configuration '{}' loaded.", p.name);
-                self.config_active = Some(p.name);
-            }
-            None => {
-                self.settings = PrintSettings::default();
-                self.export.format = None;
-                self.export.also_masks = false;
-                self.config_active = None;
-                if target.is_some() {
-                    self.status = "That configuration is gone; Default loaded.".into();
-                } else {
-                    self.status = "Default configuration loaded.".into();
-                }
-            }
+        // Loading what the panels already hold changes nothing: the slice
+        // stays fresh and the export stays ready.
+        if print != self.settings
+            || format != self.export.format
+            || also_masks != self.export.also_masks
+        {
+            self.settings = print;
+            self.export.format = format;
+            self.export.also_masks = also_masks;
+            self.settings_touched();
         }
-        self.settings_touched();
+        self.status = status;
+        self.config_active = active;
     }
 
     /// Write the panels' values under a name and make that row active.
@@ -4812,98 +4825,130 @@ impl App {
         });
 
         card(ui, "Layer & exposure", |ui| {
-            let slider_width = ui.available_width();
-            let slider = |ui: &mut egui::Ui,
-                          value: &mut f32,
-                          range: std::ops::RangeInclusive<f32>,
-                          text: &str,
-                          suffix: &str,
-                          step: f32,
-                          changed: &mut bool| {
-                *changed |= ui
-                    .add_sized(
-                        egui::vec2(slider_width, 24.0),
-                        egui::Slider::new(value, range)
-                            .text(text)
-                            .suffix(suffix)
-                            .step_by(step as f64),
-                    )
-                    .changed();
-            };
-            slider(
+            changed |= le_row(
                 ui,
+                "Layer height",
                 &mut self.settings.layer_height,
                 0.01..=0.2,
-                "Layer height",
-                " mm",
                 0.005,
-                &mut changed,
+                " mm",
+                3,
             );
-            slider(
+            changed |= le_row(
                 ui,
+                "Initial exposure",
                 &mut self.settings.bottom_exposure,
                 5.0..=90.0,
-                "Initial exposure",
-                " s",
                 0.5,
-                &mut changed,
+                " s",
+                1,
             );
-            slider(
+            changed |= le_row(
                 ui,
+                "Exposure time",
                 &mut self.settings.exposure,
                 0.5..=15.0,
-                "Exposure time",
-                " s",
                 0.1,
-                &mut changed,
+                " s",
+                1,
             );
-            slider(
+            changed |= le_row(
                 ui,
+                "Rising height",
                 &mut self.settings.rising_height,
                 0.0..=40.0,
-                "Rising height",
-                " mm",
                 0.5,
-                &mut changed,
+                " mm",
+                1,
             );
-            slider(
+            changed |= le_row(
                 ui,
+                "Motor speed",
                 &mut self.settings.motor_speed,
                 20.0..=600.0,
-                "Motor speed",
-                " mm/min",
                 5.0,
-                &mut changed,
+                " mm/min",
+                1,
             );
-            slider(
+            changed |= le_row(
                 ui,
+                "Light-off delay",
                 &mut self.settings.light_off_delay,
                 0.0..=20.0,
-                "Light-off delay",
-                " s",
                 0.1,
-                &mut changed,
+                " s",
+                1,
+            );
+            // Bottom layers is a count, not a measure.
+            ui.label(
+                egui::RichText::new("Bottom exposure layers")
+                    .size(12.5)
+                    .color(TEXT),
             );
             changed |= ui
-                .add_sized(
-                    egui::vec2(slider_width, 24.0),
-                    egui::Slider::new(&mut self.settings.bottom_layers, 0..=20)
-                        .text("Bottom exposure layers"),
-                )
-                .changed();
+                .horizontal(|ui| {
+                    let slider_w = (ui.available_width() - 84.0).max(30.0);
+                    let mut row = ui
+                        .add_sized(
+                            egui::vec2(slider_w, 22.0),
+                            egui::Slider::new(&mut self.settings.bottom_layers, 0..=20)
+                                .show_value(false)
+                                .step_by(1.0),
+                        )
+                        .changed();
+                    row |= ui
+                        .add_sized(
+                            egui::vec2(78.0, 20.0),
+                            egui::DragValue::new(&mut self.settings.bottom_layers)
+                                .speed(1.0)
+                                .range(0..=20),
+                        )
+                        .changed();
+                    row
+                })
+                .inner;
         });
 
         card(ui, "Export", |ui| {
             let busy = self.export.rx.is_some();
+            let sliced = self.slice.is_some();
             let fresh = !self.out_of_date();
-            if !fresh {
+            if !sliced {
                 ui.label(
                     egui::RichText::new(
-                        "The plate has moved on since this slice: run Generate Supports and slice again before writing a job file.",
+                        "Nothing has been sliced yet. The Slice tab makes the layers a job file is written from.",
                     )
                     .size(10.5)
                     .color(ACCENT),
                 );
+            } else if !fresh {
+                let growing = self.supports_stale();
+                ui.label(
+                    egui::RichText::new(if growing {
+                        "The plate has moved on since this slice: the supports need to grow again before a job file can be written."
+                    } else {
+                        "The settings have changed since this slice. Slice again before writing a job file."
+                    })
+                    .size(10.5)
+                    .color(ACCENT),
+                );
+                // The way back onto the freshest slice sits right here, so
+                // being stale never strands the tab.
+                let running = self.slice_job.is_some() || self.support_job.is_some();
+                ui.add_enabled_ui(!running, |ui| {
+                    let label = if growing {
+                        "Grow supports and slice"
+                    } else {
+                        "Slice again"
+                    };
+                    if accent_button(ui, label, ui.available_width()) {
+                        if growing {
+                            self.start_supports();
+                        } else {
+                            self.start_slice();
+                        }
+                    }
+                });
             }
             if busy {
                 ui.add(egui::ProgressBar::new(self.export.progress).show_percentage());
@@ -4912,17 +4957,19 @@ impl App {
                     .cancel
                     .as_ref()
                     .is_some_and(|c| c.load(Ordering::Relaxed));
+                let note = if cancelling {
+                    "Cancelling…".to_string()
+                } else {
+                    self.export.note.clone()
+                };
                 ui.horizontal(|ui| {
-                    let note = if cancelling {
-                        "Cancelling…"
-                    } else {
-                        &self.export.note
-                    };
-                    ui.label(egui::RichText::new(note).size(11.5).color(MUTED));
+                    // The button claims its side first, so the note never
+                    // crowds it out of the card.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if nav_button(ui, "Cancel", PILL, TEXT, 78.0, !cancelling) {
                             self.cancel_export();
                         }
+                        ui.label(egui::RichText::new(&note).size(11.5).color(MUTED));
                     });
                 });
             }
@@ -6201,6 +6248,47 @@ fn accent_button(ui: &mut egui::Ui, label: &str, width: f32) -> bool {
     .clicked()
 }
 
+/// One of the layer-and-exposure values: the name sits above the row, so a
+/// narrow column never clips either one. Every slider in the card shares a
+/// width, and so does every number field.
+fn le_row(
+    ui: &mut egui::Ui,
+    name: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f32,
+    suffix: &str,
+    decimals: usize,
+) -> bool {
+    const INPUT: f32 = 78.0;
+    ui.label(egui::RichText::new(name).size(12.5).color(TEXT));
+    ui.horizontal(|ui| {
+        let slider_w = (ui.available_width() - INPUT - 6.0).max(30.0);
+        let mut changed = ui
+            .add_sized(
+                egui::vec2(slider_w, 22.0),
+                egui::Slider::new(value, range.clone())
+                    .show_value(false)
+                    .step_by(step as f64),
+            )
+            .changed();
+        changed |= ui
+            .add_sized(
+                egui::vec2(INPUT, 20.0),
+                egui::DragValue::new(value)
+                    .speed(step)
+                    .range(range)
+                    .suffix(suffix)
+                    .min_decimals(decimals)
+                    .max_decimals(decimals),
+            )
+            .changed();
+        ui.add_space(6.0);
+        changed
+    })
+    .inner
+}
+
 /// One step of the wizard: its number in a small badge, then its name.
 fn step_button(ui: &mut egui::Ui, selected: bool, step: Tab) -> bool {
     let galley = ui.painter().layout_no_wrap(
@@ -7354,6 +7442,26 @@ mod tests {
         assert!(app.presets.find("Fast print").is_none());
         assert_eq!(app.config_active, None, "removing the active row frees it");
         let _ = std::fs::remove_file(&store);
+    }
+
+    #[test]
+    fn loading_a_row_that_matches_keeps_the_slice_fresh() {
+        let mut app = app_with_a_piece();
+        app.save_config_as("Mirror of now");
+        let revision = app.revision;
+        // Loading the row that already holds the panels' values is a no-op:
+        // the slice stays fresh and the export stays ready.
+        app.apply_config(Some("Mirror of now".into()));
+        assert_eq!(app.revision, revision);
+        assert_eq!(app.config_active.as_deref(), Some("Mirror of now"));
+        // A real difference still lands, exactly once.
+        app.settings.exposure = 2.0;
+        app.apply_config(Some("Mirror of now".into()));
+        assert_eq!(app.revision, revision + 1);
+        assert_eq!(app.settings.exposure, 1.5);
+        // And switching back to what is on screen never bumps again.
+        app.apply_config(Some("Mirror of now".into()));
+        assert_eq!(app.revision, revision + 1);
     }
 
     #[test]

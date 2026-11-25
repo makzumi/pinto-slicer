@@ -245,7 +245,7 @@ pub fn export_printers() -> Vec<PrinterProfile> {
     printers
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PrintSettings {
     pub layer_height: f32,
     pub exposure: f32,

@@ -4,6 +4,21 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Fixed
+
+- Saving or loading a configuration no longer greys out the export. Loading
+  a row that already matches the panels keeps the slice fresh, and when the
+  values really do change, the Export tab says so and offers a
+  Slice again button, so being stale never strands the tab.
+
+### Changed
+
+- The Layer & exposure values put their names above the sliders, with one
+  width for every slider and another for every number field, so nothing is
+  cut off in the column.
+- The export's Cancel button claims its side of the row first, so the status
+  note never crowds it out of the card.
+
 ## [0.1.23] - 2026-11-25
 
 ### Added
