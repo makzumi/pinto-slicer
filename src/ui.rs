@@ -1467,6 +1467,7 @@ impl App {
         };
         let mut chosen: Option<Option<String>> = None;
         let mut kill: Option<String> = None;
+        ui.set_min_width(230.0);
         if ui.button(default_label).clicked() {
             chosen = Some(None);
         }
@@ -1479,7 +1480,10 @@ impl App {
                     } else {
                         name.clone()
                     };
-                    let row = ui.add(egui::Button::new(label));
+                    // The name takes the rest of the row so the × sits at the
+                    // right edge, where a removal control belongs.
+                    let width = (ui.available_width() - 34.0).max(60.0);
+                    let row = ui.add_sized([width, 26.0], egui::Button::new(label));
                     let row = match self.presets.find(&name) {
                         Some(preset) => row.on_hover_text(preset.summary()),
                         None => row,
@@ -1488,8 +1492,9 @@ impl App {
                         chosen = Some(Some(name.clone()));
                     }
                     let x = ui
-                        .add(
-                            egui::Button::new(egui::RichText::new("×").size(12.5).color(MUTED))
+                        .add_sized(
+                            [30.0, 26.0],
+                            egui::Button::new(egui::RichText::new("×").size(15.0).color(MUTED))
                                 .fill(egui::Color32::TRANSPARENT),
                         )
                         .on_hover_text(format!("Remove {name}"));
@@ -3119,7 +3124,7 @@ impl App {
                     }
                     ui.add_space(8.0);
                     let config =
-                        egui::menu::menu_button(ui, "Configuration", |ui| self.config_menu(ui));
+                        egui::menu::menu_button(ui, "Configuration ▾", |ui| self.config_menu(ui));
                     config.response.on_hover_text(
                         "Name the supports and export settings under a configuration, and load \\
                          them back in any project. Default is the built-in profile; your own \\
