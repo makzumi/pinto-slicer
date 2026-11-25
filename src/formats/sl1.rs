@@ -183,8 +183,8 @@ mod tests {
             .unwrap()
             .read_to_string(&mut config)
             .unwrap();
-        assert!(config.contains("numFade = 5\n"));
-        assert!(config.contains("expTimeFirst = 35.0000\n"));
+        assert!(config.contains("numFade = 4\n"));
+        assert!(config.contains("expTimeFirst = 30.0000\n"));
         for name in [
             "config.ini",
             "prusaslicer.ini",

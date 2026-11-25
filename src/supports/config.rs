@@ -148,7 +148,9 @@ impl Default for SupportConfig {
         Self {
             preset: Preset::Medium,
             height_from_platform: 6.0,
-            touch_tip_distance: Density::Medium.spacing(),
+            // The spacing every well-printed HALOT Box file has used: tips
+            // 4 mm apart, which this app calls the High density.
+            touch_tip_distance: Density::High.spacing(),
             overhang_angle_deg: 45.0,
             tip: TipConfig::default(),
             branch_angle_deg: 45.0,
@@ -289,7 +291,7 @@ mod tests {
     fn the_defaults_match_the_reference_panel() {
         let c = SupportConfig::default();
         assert_eq!(c.height_from_platform, 6.0);
-        assert_eq!(c.touch_tip_distance, Density::Medium.spacing());
+        assert_eq!(c.touch_tip_distance, Density::High.spacing());
         assert_eq!(c.overhang_angle_deg, 45.0);
         assert_eq!(c.tip.upper_diameter, 0.6);
         assert_eq!(c.tip.lower_diameter, 1.2);
@@ -360,7 +362,7 @@ mod tests {
     fn settings_are_written_out_and_are_serde_ready() {
         let c = SupportConfig::default();
         let text = c.to_json();
-        assert!(text.contains("\"touch_tip_distance\": 6"));
+        assert!(text.contains("\"touch_tip_distance\": 4"));
         assert!(text.contains("\"plate_thickness\": 0.8"));
         // The serde derives exist, so any serde format can save and load it.
         fn serde_ready<T: serde::Serialize + serde::de::DeserializeOwned>() {}

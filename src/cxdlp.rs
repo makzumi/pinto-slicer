@@ -1051,7 +1051,7 @@ mod tests {
         assert_eq!(&bytes[4..13], MAGIC);
         assert_eq!(u16::from_be_bytes(bytes[13..15].try_into().unwrap()), 3);
         // Legacy motion uses integer mm/s and exposure uses deciseconds.
-        let motion: Vec<u8> = [25_u16, 4, 35, 5, 7, 1, 6, 1, 3, 255, 255]
+        let motion: Vec<u8> = [15_u16, 5, 30, 4, 7, 1, 6, 1, 3, 255, 255]
             .into_iter()
             .flat_map(u16::to_be_bytes)
             .collect();

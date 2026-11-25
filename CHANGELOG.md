@@ -6,7 +6,7 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ### Changed
 
-- **The default motion profile is the one the printer already trusts.** Rise 8 mm at 250 mm/min and rest 4 s before each cure — the numbers the machine's own Default resin uses in HALOT Box. The old 6/240/0.5 defaults gave the film a third less travel and an eighth of the settle, and supports tore off mid-print on a full plate.
+- **The defaults are the numbers the machine has always printed with.** Every file HALOT Box ever wrote for the X1 carried the same built-in profile, no matter what its settings boxes said: 30 s initial exposure, 1.5 s normal, 4 bottom layers, an 8 mm rise at 300 mm/min and 4 s of settle. Pinto now starts from those numbers — including the tip spacing, 4 mm apart (the High density), the way every well-printed support plate was made.
 ## [0.1.20] - 2026-11-25
 
 ### Changed

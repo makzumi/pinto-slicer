@@ -264,15 +264,17 @@ impl Default for PrintSettings {
     fn default() -> Self {
         Self {
             layer_height: 0.05,
-            exposure: 2.5,
-            bottom_layers: 5,
-            bottom_exposure: 35.0,
-            // The motion profile the printer's own Default resin uses: an 8 mm
-            // rise at 250 mm/min, then 4 s of settle before each cure. The
-            // weaker 6/240/0.5 defaults peeled supports off mid-print on a
-            // full plate.
+            // The resin numbers the machine has printed well for years: the
+            // Default profile HALOT Box has always written (30 s initial,
+            // 1.5 s normal, 4 bottom layers). Every value the slicer's own
+            // boxes ever claimed was a no-op — the exports never changed.
+            exposure: 1.5,
+            bottom_layers: 4,
+            bottom_exposure: 30.0,
+            // The motion profile of the same Default resin: an 8 mm rise at
+            // 300 mm/min, then 4 s of settle before each cure.
             rising_height: 8.0,
-            motor_speed: 250.0,
+            motor_speed: 300.0,
             light_off_delay: 4.0,
             supports: crate::supports::SupportConfig::default(),
         }
