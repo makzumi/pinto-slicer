@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.19/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.20/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,18 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.20" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.20</url>
+      <description>
+        <p>The whole face got a pass: one type scale, sentence case, and a tidier layout.</p>
+        <ul>
+          <li>Layer and exposure settings moved to the export tab; the slice tab keeps the cross-section view</li>
+          <li>Job files start where the project lives, or on the desktop</li>
+          <li>Layer playback runs exponentially faster than its labels say, with Loop beside the speed pills</li>
+          <li>The version shows beside the app name up top</li>
         </ul>
       </description>
     </release>

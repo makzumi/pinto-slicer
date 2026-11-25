@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-11-25
+
 ### Changed
 
 - **One type scale and one pill shape for the whole window.** The panels had grown five near-duplicate text sizes (11.0 and 11.5, 12.0 and 12.5, 13.0 and 13.5) and three pill roundings (7, 8, 9). Titles sit at 10.5, notes at 11.5, body text and pills at 12.5, primary buttons at 13.5, and every pill is rounded 8.
@@ -16,6 +18,7 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 - **The supports row is tidy.** **Generate Supports** fills its row; **Delete all** and **Reset defaults** split the one below it, half each.
 - **No more shouting.** Card titles and window labels are sentence case: "WHERE THEY GROW" is "Where they grow", MOVE/TURN/SIZE became Move/Turn/Size, and the badge says "3D model", not "3D MODEL".
 - **The playback runs exponentially faster.** The pills still say 0.5× to 4×, but every step up the ladder now runs four times the pace of the one before it — the slowest holds a layer for 60 ms and the top pill tears through a thousand layers in about a second. The **Loop** switch moved in beside the 4× pill, where the speed choices live.
+- **The view badge is gone.** The little “3D model” tag in the corner of the picture never said anything the picture didn't; the lens pills moved up into its place.
 
 ## [0.1.19] - 2026-11-25
 
@@ -204,7 +207,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.19...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.20...HEAD
+[0.1.20]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.20
 [0.1.19]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.19
 [0.1.18]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.18
 [0.1.17]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.17
