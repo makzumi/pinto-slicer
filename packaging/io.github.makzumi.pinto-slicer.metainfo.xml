@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.18/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.19/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,16 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.19" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.19</url>
+      <description>
+        <p>The printer can say how much resin a print needs.</p>
+        <ul>
+          <li>The volume is counted off the layer masks as they are written</li>
+          <li>The weight follows at the density Creality's own numbers round to</li>
         </ul>
       </description>
     </release>

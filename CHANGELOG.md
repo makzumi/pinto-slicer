@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-11-25
+
 ### Fixed
 
 - **The printer can say how much resin a print needs.** The file left the volume, weight and cost slots at zero, so the printer announced 0.00 ml and there was no way to tell a working file from an empty one. The volume is now counted off the layer masks themselves, every lit pixel being a voxel of cured resin, and the weight follows at 1.1 g per millilitre, the density Creality's own numbers round to.
@@ -189,7 +191,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.18...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.19...HEAD
+[0.1.19]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.19
 [0.1.18]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.18
 [0.1.17]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.17
 [0.1.16]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.16
