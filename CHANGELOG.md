@@ -7,7 +7,7 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 ### Added
 
 - **Copy as many pieces as asked for** from the left strip: **Copy…** asks for a number and puts that many copies of every picked piece beside their originals, wrapping into a second row when the plate runs out. **Ctrl+D** still makes one copy without asking.
-- **Mirror beside the original** from the left strip: **Mirror** puts one mirrored copy of each picked piece next to it, so a left-hand part leaves a right-hand one. The flip is a placement, not new geometry, so it can be undone like any other move.
+- **Mirror beside the original** from the left strip: **Mirror** asks which way to flip — across **X**, **Y** or **Z** — and puts one mirrored copy of each picked piece next to it, so a left-hand part leaves a right-hand one. The flip is a placement, not new geometry, so it can be undone like any other move.
 
 ### Fixed
 

@@ -620,6 +620,9 @@ pub struct App {
     /// The copy question is up, and how many copies it is set to make.
     copy_prompt: bool,
     copies: usize,
+    /// The mirror question is up, and which axis it is set to flip across.
+    mirror_prompt: bool,
+    mirror_axis: usize,
     /// Whether closing the window asks about unwritten changes. A window that
     /// exists to be photographed closes without a word.
     prompt_on_close: bool,
@@ -741,6 +744,8 @@ impl App {
             closing: false,
             copy_prompt: false,
             copies: 1,
+            mirror_prompt: false,
+            mirror_axis: 0,
             prompt_on_close: !wait_for_runs,
             recent: startup_recent(),
             project_path: None,
@@ -1123,23 +1128,24 @@ impl App {
 
     /// Put one copy of each picked piece beside it, with room for its supports.
     fn duplicate_selected(&mut self) {
-        self.copy_selected(1, false);
+        self.copy_selected(1, None);
     }
 
     /// The same, as many times as the copy question asks for.
     fn duplicate_selected_many(&mut self, copies: usize) {
-        self.copy_selected(copies, false);
+        self.copy_selected(copies, None);
     }
 
-    /// One copy of each picked piece, turned inside out: a left-hand part
-    /// leaves a right-hand one beside it.
-    fn mirror_copy_selected(&mut self) {
-        self.copy_selected(1, true);
+    /// One copy of each picked piece, turned inside out across `axis`: a
+    /// left-hand part leaves a right-hand one beside it.
+    fn mirror_copy_selected(&mut self, axis: usize) {
+        self.copy_selected(1, Some(axis.min(2)));
     }
 
     /// Copies of the picked pieces, laid out beside their originals: to the
-    /// right, wrapping into a new row when the plate runs out.
-    fn copy_selected(&mut self, copies: usize, mirrored: bool) {
+    /// right, wrapping into a new row when the plate runs out. A copy is
+    /// flipped across `mirror`'s axis first when one is given.
+    fn copy_selected(&mut self, copies: usize, mirror: Option<usize>) {
         self.cancel_gesture();
         let picked: Vec<usize> = self
             .selection
@@ -1168,15 +1174,15 @@ impl App {
             for k in 1..=copies {
                 let (col, row) = (k % per_row, k / per_row);
                 let mut copy = entry.clone();
-                if mirrored {
+                if let Some(axis) = mirror {
                     // Flip before placing: a mirror about the piece's own
                     // centre leaves it where it was, then the copy is moved.
                     let centre = layout::bounds_centre(copy.mesh.bounds());
-                    copy.transform.mirror_about(0, centre);
+                    copy.transform.mirror_about(axis, centre);
                 }
                 copy.transform.pos =
                     origin + Vec3::new(step_x * col as f32, (size.y + gap) * row as f32, 0.0);
-                let name = if mirrored {
+                let name = if mirror.is_some() {
                     format!("{} mirrored", copy.mesh.name)
                 } else if copies == 1 {
                     format!("{} copy", copy.mesh.name)
@@ -1192,10 +1198,12 @@ impl App {
         self.models.extend(placed);
         self.selection.only(first..first + count);
         self.finish_model_edit(&(first..first + count).collect::<Vec<_>>(), true);
-        self.status = if mirrored {
-            format!("Mirrored {count} piece(s) beside the original.")
-        } else {
-            format!("Copied {count} piece(s).")
+        self.status = match mirror {
+            Some(axis) => format!(
+                "Mirrored {count} piece(s) across {} beside the original.",
+                ["X", "Y", "Z"][axis]
+            ),
+            None => format!("Copied {count} piece(s)."),
         };
     }
 
@@ -1626,6 +1634,65 @@ impl App {
             self.duplicate_selected_many(copies);
         } else if cancel {
             self.copy_prompt = false;
+        }
+    }
+
+    /// Which way to flip the copies. A mirror is a placement, so the axis is
+    /// the one thing worth asking; the copies always land beside the original.
+    fn mirror_window(&mut self, ctx: &egui::Context) {
+        if !self.mirror_prompt {
+            return;
+        }
+        let picked = self.selection.len();
+        let (mut make, mut cancel) = (false, false);
+        egui::Window::new("Mirror the picked pieces")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_max_width(320.0);
+                ui.label(egui::RichText::new(format!("{picked} piece(s) picked.")).color(MUTED));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Across").color(TEXT));
+                    for (axis, name) in ["X", "Y", "Z"].iter().enumerate() {
+                        let hint = match axis {
+                            0 => "Left and right swap",
+                            1 => "Front and back swap",
+                            _ => "Top and bottom swap",
+                        };
+                        if transport_pill(ui, name, self.mirror_axis == axis, hint) {
+                            self.mirror_axis = axis;
+                        }
+                    }
+                });
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("The mirrored copy sits beside the original.")
+                        .size(11.0)
+                        .color(MUTED),
+                );
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Mirror").clicked() {
+                        make = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if ctx.input(|input| input.key_pressed(egui::Key::Enter)) {
+            make = true;
+        }
+        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if make {
+            self.mirror_prompt = false;
+            self.mirror_copy_selected(self.mirror_axis);
+        } else if cancel {
+            self.mirror_prompt = false;
         }
     }
 
@@ -2868,7 +2935,7 @@ impl App {
                 let (copy_tip, mirror_tip) = if any_picked {
                     (
                         "Copy the picked pieces, as many as asked for",
-                        "Put a mirrored copy of each picked piece beside it",
+                        "Put a mirrored copy of each picked piece beside it, across an axis you pick",
                     )
                 } else {
                     ("Pick a piece first", "Pick a piece first")
@@ -2890,10 +2957,10 @@ impl App {
                     icons::MIRROR,
                     "Mirror",
                     mirror_tip,
-                    false,
+                    self.mirror_prompt,
                     size,
                 ) {
-                    self.mirror_copy_selected();
+                    self.mirror_prompt = true;
                 }
                 // the two view modes sit at the foot of the strip
                 let gap = ui.spacing().item_spacing.y;
@@ -4684,7 +4751,8 @@ impl App {
     /// The keys written on the tooltips, all read from the same place as the
     /// tooltips themselves so the two cannot say different things.
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() || self.quit_prompt || self.copy_prompt {
+        if ctx.wants_keyboard_input() || self.quit_prompt || self.copy_prompt || self.mirror_prompt
+        {
             return;
         }
         let pressed = ctx.input(|i| Pressed {
@@ -4758,6 +4826,7 @@ impl App {
         self.values_window(ctx);
         self.alignment_window(ctx);
         self.copy_window(ctx);
+        self.mirror_window(ctx);
         self.help_window(ctx);
     }
 
@@ -6487,7 +6556,8 @@ mod tests {
         app.selection = Selection::single(0);
         let before = app.models.len();
         let original = app.models[0].transform;
-        app.mirror_copy_selected();
+        assert_eq!(app.mirror_axis, 0, "X is what the question opens on");
+        app.mirror_copy_selected(app.mirror_axis);
 
         assert_eq!(
             app.models.len(),
@@ -6505,6 +6575,17 @@ mod tests {
         assert_eq!(app.selection.primary(), Some(before));
         let (min, max) = app.world[before].bounds();
         assert!(min.z >= -0.01 && max.z > min.z, "the copy is on the plate");
+
+        // The question's axis is the one that gets flipped, and only that one.
+        app.selection = Selection::single(0);
+        app.mirror_copy_selected(1);
+        let by_y = app.models[app.models.len() - 1].transform;
+        assert!(by_y.mirror.y, "Y flips front and back");
+        assert!(!by_y.mirror.x, "and leaves left and right alone");
+        assert!(
+            (by_y.pos.x - original.pos.x).abs() > 1.0,
+            "the copy still lands beside the original"
+        );
     }
 
     #[test]
