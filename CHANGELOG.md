@@ -15,6 +15,7 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 - **The version is in the title bar.** "Pinto Slicer (v0.1.19)" sits beside the app name, small and quiet.
 - **The supports row is tidy.** **Generate Supports** fills its row; **Delete all** and **Reset defaults** split the one below it, half each.
 - **No more shouting.** Card titles and window labels are sentence case: "WHERE THEY GROW" is "Where they grow", MOVE/TURN/SIZE became Move/Turn/Size, and the badge says "3D model", not "3D MODEL".
+- **The playback film runs at its real pace.** The pills still say 0.5× to 4×, but each one now moves at twice the speed it used to: 1× holds a layer for 60 ms instead of 120, and 4× for 15 — the old 8×.
 
 ## [0.1.19] - 2026-11-25
 

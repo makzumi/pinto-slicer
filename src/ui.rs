@@ -468,15 +468,19 @@ struct Playback {
 }
 
 /// Seconds one layer stays up at 1×: slow enough to read the picture, quick
-/// enough that a whole plate plays in well under a minute.
-const BASE_PER_LAYER: f32 = 0.12;
+/// enough that a whole plate plays in well under a minute. The label says 1×,
+/// but the film runs at twice the pace the first releases used — a pace that
+/// felt right on a slow plate turns out sleepy on a thousand layers.
+const BASE_PER_LAYER: f32 = 0.06;
 
 /// The speeds the transport offers, slowest first.
 const SPEEDS: [f32; 4] = [0.5, 1.0, 2.0, 4.0];
 
 impl Playback {
     fn per_layer(&self) -> f32 {
-        (BASE_PER_LAYER / self.speed).clamp(0.02, 1.0)
+        // The floor lets 4× reach its doubled 15 ms instead of pinning it at
+        // the old ceiling; the screen's own frame rate floors it in practice.
+        (BASE_PER_LAYER / self.speed).clamp(0.01, 1.0)
     }
 
     /// One layer forward: the last layer either starts the plate over or brings
@@ -6328,9 +6332,12 @@ mod tests {
         assert!((playback.per_layer() - super::BASE_PER_LAYER * 0.5).abs() < 1e-6);
         playback.speed = 0.5;
         assert!((playback.per_layer() - super::BASE_PER_LAYER * 2.0).abs() < 1e-6);
+        // The pills still say 0.5× to 4×, but each runs at twice the pace the
+        // first release promised: 1× is 60 ms a layer, 4× is the old 8×.
+        assert!((super::BASE_PER_LAYER - 0.06).abs() < 1e-6);
         for speed in super::SPEEDS {
             assert!(
-                (0.02..=1.0).contains(
+                (0.01..=1.0).contains(
                     &super::Playback {
                         speed,
                         ..Default::default()
