@@ -1467,7 +1467,10 @@ impl App {
         };
         let mut chosen: Option<Option<String>> = None;
         let mut kill: Option<String> = None;
+        // Rows that size themselves to the menu would grow it a hair a frame,
+        // so the popup is pinned and every row is a fixed fit inside it.
         ui.set_min_width(230.0);
+        ui.set_max_width(230.0);
         if ui.button(default_label).clicked() {
             chosen = Some(None);
         }
@@ -1475,15 +1478,19 @@ impl App {
             ui.separator();
             for name in self.presets.names() {
                 ui.horizontal(|ui| {
+                    let mut shown = name.clone();
+                    if shown.chars().count() > 28 {
+                        shown = shown.chars().take(27).collect::<String>() + "…";
+                    }
                     let label = if active.as_deref() == Some(name.as_str()) {
-                        format!("● {name}")
+                        format!("● {shown}")
                     } else {
-                        name.clone()
+                        shown
                     };
                     // The name takes the rest of the row so the × sits at the
-                    // right edge, where a removal control belongs.
-                    let width = (ui.available_width() - 34.0).max(60.0);
-                    let row = ui.add_sized([width, 26.0], egui::Button::new(label));
+                    // right edge, where a removal control belongs. The hover
+                    // carries the full name and a one-line summary of it.
+                    let row = ui.add_sized([196.0, 26.0], egui::Button::new(label));
                     let row = match self.presets.find(&name) {
                         Some(preset) => row.on_hover_text(preset.summary()),
                         None => row,
@@ -1493,7 +1500,7 @@ impl App {
                     }
                     let x = ui
                         .add_sized(
-                            [30.0, 26.0],
+                            [26.0, 26.0],
                             egui::Button::new(egui::RichText::new("×").size(15.0).color(MUTED))
                                 .fill(egui::Color32::TRANSPARENT),
                         )
@@ -3123,8 +3130,11 @@ impl App {
                         }
                     }
                     ui.add_space(8.0);
-                    let config =
-                        egui::menu::menu_button(ui, "Configuration ▾", |ui| self.config_menu(ui));
+                    let config = egui::menu::menu_button(
+                        ui,
+                        format!("Configuration {}", icons::CARET),
+                        |ui| self.config_menu(ui),
+                    );
                     config.response.on_hover_text(
                         "Name the supports and export settings under a configuration, and load \\
                          them back in any project. Default is the built-in profile; your own \\
@@ -5304,7 +5314,7 @@ impl App {
                         ui.add(
                             egui::TextEdit::singleline(&mut draft)
                                 .hint_text("My preset")
-                                .desired_width(ui.available_width() - 12.0),
+                                .desired_width(220.0),
                         );
                         ui.add_space(10.0);
                         ui.horizontal(|ui| {
