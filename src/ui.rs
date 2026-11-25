@@ -4726,14 +4726,7 @@ impl App {
                 // clicks before they can select a model behind it.
                 navigation.paint(&painter, raw_pointer.pos);
 
-                // a small floating badge instead of a plain caption
-                let text = match self.mode {
-                    ViewMode::Solid => "3D model",
-                    ViewMode::Sliced => "Sliced layers",
-                };
-                badge(&painter, rect.left_top() + egui::vec2(12.0, 12.0), text);
-                // The lens sits with the badge it belongs to, so the two read
-                // as one caption for what the picture is showing.
+                // The lens pills keep the corner to themselves.
                 for (chip, label, orthographic) in lens_chips(rect) {
                     let hint = if orthographic {
                         "Orthographic: every piece keeps its size, however far away it is"
@@ -5663,7 +5656,7 @@ fn step_button(ui: &mut egui::Ui, selected: bool, step: Tab) -> bool {
 /// against them before the picture is even drawn.
 fn lens_chips(rect: egui::Rect) -> [(egui::Rect, &'static str, bool); 2] {
     let size = egui::vec2(58.0, 22.0);
-    let at = rect.left_top() + egui::vec2(12.0, 40.0);
+    let at = rect.left_top() + egui::vec2(12.0, 12.0);
     [
         (egui::Rect::from_min_size(at, size), "Persp", false),
         (
@@ -5684,18 +5677,6 @@ fn lens_pill(label: &str, on: bool) -> egui::Button<'static> {
         })
         .rounding(egui::Rounding::same(8.0))
         .stroke(egui::Stroke::NONE)
-}
-
-fn badge(painter: &egui::Painter, at: egui::Pos2, text: &str) {
-    let galley = painter.layout_no_wrap(text.to_string(), egui::FontId::proportional(10.5), MUTED);
-    let pad = egui::vec2(8.0, 4.0);
-    let rect = egui::Rect::from_min_size(at, galley.size() + pad * 2.0);
-    painter.rect_filled(
-        rect,
-        egui::Rounding::same(8.0),
-        egui::Color32::from_black_alpha(120),
-    );
-    painter.galley(rect.min + pad, galley, MUTED);
 }
 
 /// Which parameter card a support preview belongs to.
