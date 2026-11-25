@@ -1460,37 +1460,55 @@ impl App {
     /// save item that is only worth clicking when something has changed.
     fn config_menu(&mut self, ui: &mut egui::Ui) {
         let active = self.config_active.clone();
-        let default_label = if active.is_none() {
-            "● Default".to_string()
-        } else {
-            "Default".to_string()
-        };
+        // A circled check marks the row the panels answer to; the rest wear
+        // a ring. Both come from the installed icon font — the dot glyph
+        // of that weight is a hairline speck — so no machine ever has to
+        // show a tofu box for them.
+        let default_label = format!(
+            "{} Default",
+            if active.is_none() {
+                icons::CHECK_CIRCLE
+            } else {
+                icons::CIRCLE
+            }
+        );
+        let default_colour = if active.is_none() { ACCENT } else { TEXT };
         let mut chosen: Option<Option<String>> = None;
         let mut kill: Option<String> = None;
         // Rows that size themselves to the menu would grow it a hair a frame,
         // so the popup is pinned and every row is a fixed fit inside it.
         ui.set_min_width(230.0);
         ui.set_max_width(230.0);
-        if ui.button(default_label).clicked() {
+        if ui
+            .add(egui::Button::new(
+                egui::RichText::new(default_label).color(default_colour),
+            ))
+            .clicked()
+        {
             chosen = Some(None);
         }
         if !self.presets.is_empty() {
             ui.separator();
             for name in self.presets.names() {
+                let is_active = active.as_deref() == Some(name.as_str());
                 ui.horizontal(|ui| {
                     let mut shown = name.clone();
                     if shown.chars().count() > 28 {
                         shown = shown.chars().take(27).collect::<String>() + "…";
                     }
-                    let label = if active.as_deref() == Some(name.as_str()) {
-                        format!("● {shown}")
+                    // The name hugs the left edge and the × rides the right
+                    // one, so the labels line up like a list whatever a name
+                    // weighs; the hover carries the full name and a one-line
+                    // summary of it.
+                    let marker = if is_active {
+                        icons::CHECK_CIRCLE
                     } else {
-                        shown
+                        icons::CIRCLE
                     };
-                    // The name takes the rest of the row so the × sits at the
-                    // right edge, where a removal control belongs. The hover
-                    // carries the full name and a one-line summary of it.
-                    let row = ui.add_sized([196.0, 26.0], egui::Button::new(label));
+                    let colour = if is_active { ACCENT } else { TEXT };
+                    let row = ui.add(egui::Button::new(
+                        egui::RichText::new(format!("{marker} {shown}")).color(colour),
+                    ));
                     let row = match self.presets.find(&name) {
                         Some(preset) => row.on_hover_text(preset.summary()),
                         None => row,
@@ -1498,16 +1516,18 @@ impl App {
                     if row.clicked() {
                         chosen = Some(Some(name.clone()));
                     }
-                    let x = ui
-                        .add_sized(
-                            [26.0, 26.0],
-                            egui::Button::new(egui::RichText::new("×").size(15.0).color(MUTED))
-                                .fill(egui::Color32::TRANSPARENT),
-                        )
-                        .on_hover_text(format!("Remove {name}"));
-                    if x.clicked() {
-                        kill = Some(name.clone());
-                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let x = ui
+                            .add_sized(
+                                [26.0, 26.0],
+                                egui::Button::new(egui::RichText::new("×").size(15.0).color(MUTED))
+                                    .fill(egui::Color32::TRANSPARENT),
+                            )
+                            .on_hover_text(format!("Remove {name}"));
+                        if x.clicked() {
+                            kill = Some(name.clone());
+                        }
+                    });
                 });
             }
         }

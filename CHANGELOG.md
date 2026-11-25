@@ -13,6 +13,9 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ### Changed
 
+- The configuration rows line up like a list: names start at the left edge
+  instead of centring, the active row wears a circled check and the rest a
+  ring, both drawn from the icon font so no machine shows a tofu box.
 - The Layer & exposure values put their names above the sliders, with one
   width for every slider and another for every number field, so nothing is
   cut off in the column.
