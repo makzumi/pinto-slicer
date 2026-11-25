@@ -266,6 +266,105 @@ pub fn fill_mask(
     }
 }
 
+/// The layer as world-space rectangles, one per solid span per scanline, at
+/// `pitch` millimetres per line. A rectangle mesh gives the cut plane's cap
+/// its exact outlines — the pixel mask it replaces showed its own grid.
+/// Vertically identical spans are welded, so a flat wall costs one quad.
+pub fn cap_rects(layer: &Layer, min: [f32; 2], max: [f32; 2], pitch: f32) -> Vec<[f32; 4]> {
+    let mut rects: Vec<[f32; 4]> = Vec::new();
+    if layer.segs.is_empty() {
+        return rects;
+    }
+    let pitch = pitch.max(0.01);
+    let sx = (max[0] - min[0]).max(1e-6);
+    let lo = |s: &Seg| s.a[1].min(s.b[1]);
+    let hi = |s: &Seg| s.a[1].max(s.b[1]);
+    let mut y_lo = f32::MAX;
+    let mut y_hi = f32::MIN;
+    for s in &layer.segs {
+        y_lo = y_lo.min(lo(s));
+        y_hi = y_hi.max(hi(s));
+    }
+    if y_hi <= y_lo {
+        return rects;
+    }
+    let mut order: Vec<usize> = (0..layer.segs.len()).collect();
+    order.sort_by(|&a, &b| lo(&layer.segs[a]).total_cmp(&lo(&layer.segs[b])));
+    let mut next = 0usize;
+    let mut active: Vec<usize> = Vec::new();
+    let mut xs: Vec<(f32, i32)> = Vec::new();
+    let mut row = y_lo;
+    while row <= y_hi {
+        while next < order.len() && lo(&layer.segs[order[next]]) <= row {
+            active.push(order[next]);
+            next += 1;
+        }
+        active.retain(|&i| hi(&layer.segs[i]) >= row);
+        xs.clear();
+        for &i in &active {
+            let s = &layer.segs[i];
+            let (ay, by) = (s.a[1], s.b[1]);
+            if (ay <= row) != (by <= row) {
+                let denom = by - ay;
+                if denom.abs() < 1e-9 {
+                    continue;
+                }
+                let t = (row - ay) / denom;
+                let x = s.a[0] + (s.b[0] - s.a[0]) * t;
+                xs.push((x, if by > ay { 1 } else { -1 }));
+            }
+        }
+        xs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let mut wind = 0i32;
+        let mut span: Option<f32> = None;
+        let mut k = 0usize;
+        while k < xs.len() {
+            let was = wind != 0;
+            wind += xs[k].1;
+            let now = wind != 0;
+            if !was && now {
+                span = Some(xs[k].0);
+            } else if was && !now {
+                if let Some(x0) = span.take() {
+                    if let Some((x0, x1)) = clamp_span(min, sx, x0, xs[k].0) {
+                        push_span(&mut rects, x0, x1, row, row + pitch);
+                    }
+                }
+            }
+            k += 1;
+        }
+        // A contour left open past the bed edge behaves like the mask it
+        // replaces: the span runs to the end of the plate.
+        if let Some(x0) = span {
+            if let Some((x0, x1)) = clamp_span(min, sx, x0, min[0] + sx) {
+                push_span(&mut rects, x0, x1, row, row + pitch);
+            }
+        }
+        row += pitch;
+    }
+    rects
+}
+
+/// A span clipped to the bed, or nothing if it lies entirely outside.
+fn clamp_span(min: [f32; 2], sx: f32, x0w: f32, x1w: f32) -> Option<(f32, f32)> {
+    let x0 = x0w.max(min[0]);
+    let x1 = x1w.min(min[0] + sx);
+    (x1 > x0).then_some((x0, x1))
+}
+
+/// One span becomes a rectangle, welded onto the one below it when the
+/// footprint has not moved.
+fn push_span(rects: &mut Vec<[f32; 4]>, x0: f32, x1: f32, y0: f32, y1: f32) {
+    if let Some(last) = rects.last_mut() {
+        if (last[3] - y0).abs() < 1e-4 && (last[0] - x0).abs() < 1e-4 && (last[2] - x1).abs() < 1e-4
+        {
+            last[3] = y1;
+            return;
+        }
+    }
+    rects.push([x0, y0, x1, y1]);
+}
+
 fn fill_span(counts: &mut [u8], row: usize, w: usize, x_min: f32, sx: f32, x0w: f32, x1w: f32) {
     let x0 = ((x0w - x_min) / sx * w as f32).max(0.0);
     let x1 = ((x1w - x_min) / sx * w as f32).min(w as f32);
@@ -440,5 +539,65 @@ mod tests {
     fn layer_height_is_quantized_to_three_decimals() {
         let sl = slice(&[cube(0.0, 0.0, 5.0, 10.0)], 0.049999997);
         assert_eq!(sl.layer_height, 0.05);
+    }
+    fn square_layer(x0: f32, y0: f32, x1: f32, y1: f32, reversed: bool) -> Layer {
+        let pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+        let mut segs = Vec::new();
+        for k in 0..4 {
+            let (a, b) = if reversed {
+                (pts[(k + 1) % 4], pts[k])
+            } else {
+                (pts[k], pts[(k + 1) % 4])
+            };
+            segs.push(Seg {
+                a: [a.0, a.1],
+                b: [b.0, b.1],
+            });
+        }
+        Layer { z: 1.0, segs }
+    }
+
+    #[test]
+    fn cap_rects_weld_a_flat_wall_into_one_rectangle() {
+        let layer = square_layer(0.0, 0.0, 4.0, 4.0, false);
+        let rects = cap_rects(&layer, [0.0, 0.0], [10.0, 10.0], 1.0);
+        assert_eq!(rects.len(), 1, "a flat wall is one quad, was {rects:?}");
+        assert_eq!(rects[0], [0.0, 0.0, 4.0, 4.0]);
+    }
+
+    #[test]
+    fn cap_rects_keep_a_hole_open() {
+        let mut layer = square_layer(0.0, 0.0, 6.0, 6.0, false);
+        // A hole is the same loop walked the other way.
+        layer
+            .segs
+            .extend(square_layer(2.0, 2.0, 4.0, 4.0, true).segs);
+        let rects = cap_rects(&layer, [0.0, 0.0], [10.0, 10.0], 1.0);
+        let area: f32 = rects.iter().map(|r| (r[2] - r[0]) * (r[3] - r[1])).sum();
+        let expect = 36.0 - 4.0;
+        assert!(
+            (area - expect).abs() < 1e-4,
+            "the hole must not be filled: area {area} over {rects:?}"
+        );
+        for r in &rects {
+            // On the rows through the hole, a rect either stops before it
+            // or starts past it; none may bridge it.
+            if r[1] > 1.9 && r[3] < 4.1 {
+                assert!(
+                    r[2] < 2.0 + 1e-4 || r[0] > 4.0 - 1e-4,
+                    "hole row was filled: {r:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cap_rects_clip_to_the_bed() {
+        let layer = square_layer(8.0, 0.0, 12.0, 2.0, false);
+        let rects = cap_rects(&layer, [0.0, 0.0], [10.0, 10.0], 1.0);
+        assert!(!rects.is_empty(), "the part inside the bed still shows");
+        for r in &rects {
+            assert!(r[1] <= 10.0 + 1e-5, "rect runs past the bed edge: {r:?}");
+        }
     }
 }

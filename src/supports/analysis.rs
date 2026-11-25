@@ -291,6 +291,55 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
                             out.coverage_added += 1;
                         }
                     }
+                    // A band stacked over an older one buries its cells
+                    // inside the accumulated blob, where the outline walk
+                    // never visits them: a hollow's ceiling sits right over
+                    // the band its own funnel grew. A fresh cell surrounded
+                    // by the band on every side is one of those, so it
+                    // becomes a candidate at the height it appeared; a fresh
+                    // cell on the blob's rim belongs to the outline walk,
+                    // which already proposes it. The coverage gate keeps the
+                    // spacing honest either way.
+                    let interior = |cell: usize| {
+                        let (cx, cy) = (cell % grid.w, cell / grid.w);
+                        for dy in [usize::MAX, 0, 1] {
+                            for dx in [usize::MAX, 0, 1] {
+                                if dx == 0 && dy == 0 {
+                                    continue;
+                                }
+                                let nx = cx.wrapping_add(dx);
+                                let ny = cy.wrapping_add(dy);
+                                if nx >= grid.w || ny >= grid.h {
+                                    return false;
+                                }
+                                if !band[ny * grid.w + nx] {
+                                    return false;
+                                }
+                            }
+                        }
+                        true
+                    };
+                    for &cell in &overhang {
+                        if !interior(cell) {
+                            continue;
+                        }
+                        let (px, py) = grid.point(cell % grid.w, cell / grid.w);
+                        if covered(&out.contacts, px, py, z, grid, cfg) {
+                            continue;
+                        }
+                        if add_contact(
+                            Vec3::new(px, py, z),
+                            false,
+                            grid,
+                            cfg,
+                            tree,
+                            &trees,
+                            &mut out,
+                        ) {
+                            supports.push(out.contacts.len() - 1);
+                            out.coverage_added += 1;
+                        }
+                    }
                 }
             }
             active_parts.push(ActivePart {
@@ -325,10 +374,27 @@ pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, tree: &Bvh, cancel: &Atomi
 /// scales the curve linearly from this one.
 pub const REFERENCE_TIP_SPACING: f32 = 4.0;
 
+/// How far above a head its coverage still reaches: the first leg of
+/// Prusa's curve, where one band's columns march together. Above this a
+/// candidate belongs to a different overhang and gets its own head.
+const PROPAGATION_REACH: f32 = 4.0;
+
+/// In full coverage ("Overhangs Only" unchecked) this is how far past
+/// vertical a wall has to lean before it earns a head: steep-enough slopes,
+/// flat undersides and hollow ceilings all qualify, near-vertical walls stay
+/// clean.
+const FULL_COVERAGE_LEAN: f32 = 20.0;
+
 /// The steepest downward normal that still counts as an overhang worth a
-/// head, straight from the panel's angle.
+/// head. In Overhangs-Only mode that is the panel's angle; in full coverage
+/// it is everything leaning more than [`FULL_COVERAGE_LEAN`] past vertical,
+/// which is what the hollow ceilings and shallow shelves need.
 fn overhang_limit(cfg: &SupportConfig) -> f32 {
-    -cfg.overhang_angle_deg.clamp(1.0, 89.0).to_radians().sin()
+    if cfg.overhangs_only {
+        -cfg.overhang_angle_deg.clamp(1.0, 89.0).to_radians().sin()
+    } else {
+        -FULL_COVERAGE_LEAN.to_radians().sin()
+    }
 }
 
 /// How much wider (or tighter) the spacing is than the reference curve.
@@ -366,21 +432,22 @@ fn covered(contacts: &[Contact], x: f32, y: f32, z: f32, grid: Grid, cfg: &Suppo
     // the head that already sits on that cell is just as real there.
     contacts.iter().any(|contact| {
         // The raycast snaps a contact onto the surface, which can sit a hair
-        // above the layer it was found on. Same-level contacts still cover —
-        // otherwise every candidate on that layer would slip past the gate
-        // and pile up on one spot.
-        let dz = (z - contact.pos.z).max(0.0);
-        // Only a contact close below claims the spot: its head was meant for
-        // this same stretch of overhang, so a new one nearby would stack on
-        // it. A contact far below does not — its column stops there, and the
-        // taller candidate gets a column of its own that the trunk merger
-        // welds to the older one. Counting far-below contacts as coverage
-        // starved whole rings that happened to float above an earlier one
-        // (a flange above a funnel earned one head instead of a ring).
-        let radius = if dz > ANALYSIS_LAYER_HEIGHT * 2.0 + grid.cell {
+        // above the layer it was found on; that still counts as level. A
+        // contact genuinely higher up supports nothing below it.
+        let dz_raw = z - contact.pos.z;
+        if dz_raw < -(ANALYSIS_LAYER_HEIGHT * 2.0 + grid.cell) {
+            return false;
+        }
+        // The curve's first leg only: a head claims the slope just above
+        // it, where the columns of one band march together, and a leaning
+        // wall does not grow a stacked column of heads as it climbs. Farther
+        // up is a different overhang — a hollow's ceiling over the band its
+        // own funnel grew — and it earns its own heads; counting a far-below
+        // head as coverage starved whole rings and hollow ceilings.
+        let radius = if dz_raw > PROPAGATION_REACH {
             0.0
         } else {
-            support_radius(dz, cfg)
+            support_radius(dz_raw.max(0.0), cfg)
         };
         let dx = contact.pos.x - x;
         let dy = contact.pos.y - y;
@@ -571,8 +638,10 @@ fn add_contact(
         out.skipped += 1;
         return false;
     }
-    let overhang_limit = -cfg.overhang_angle_deg.clamp(1.0, 89.0).to_radians().sin();
-    if !island && normal.z > overhang_limit + 1e-4 {
+    // Full coverage honours the panel's switch: with Overhangs Only off,
+    // a hollow ceiling leaning less than the panel's angle still earns its
+    // forest, while near-vertical walls stay clean.
+    if !island && normal.z > overhang_limit(cfg) + 1e-4 {
         out.skipped += 1;
         return false;
     }
@@ -724,7 +793,12 @@ fn grid_cells(cells: &[usize], grid: Grid, spacing: f32) -> Vec<(usize, usize)> 
             }
         }
     }
-    best.into_values().map(|(x, y, _)| (x, y)).collect()
+    // HashMap iteration order is random per run; the picks are a
+    // candidate list, so their order decides which near-misses the
+    // keep-clear gate sees first. Sorting keeps every run identical.
+    let mut picked: Vec<(usize, usize)> = best.into_values().map(|(x, y, _)| (x, y)).collect();
+    picked.sort_unstable();
+    picked
 }
 
 /// The outline cells in walking order (Moore tracing), so a shelf's edge

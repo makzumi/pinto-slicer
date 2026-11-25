@@ -28,78 +28,6 @@ use crate::supports::{
     self, bvh::Bvh, meshgen, tips, ContactShape, Density, Preset, SupportModel, TipShape,
 };
 
-/// Turn a binary layer mask into a flat cap mesh: one quad per horizontal run
-/// of lit texels. Runs keep holes open and are cheap even on a full plate.
-fn cap_mesh_from_mask(
-    mask: &[u8],
-    w: usize,
-    h: usize,
-    min: [f32; 2],
-    max: [f32; 2],
-    z: f32,
-) -> Mesh {
-    let mut m = Mesh {
-        name: "cross-section".into(),
-        ..Default::default()
-    };
-    if w == 0 || h == 0 || mask.len() < w * h {
-        return m;
-    }
-    let sx = (max[0] - min[0]).max(1e-6);
-    let sy = (max[1] - min[1]).max(1e-6);
-    for row in 0..h {
-        let y0 = min[1] + row as f32 / h as f32 * sy;
-        let y1 = min[1] + (row + 1) as f32 / h as f32 * sy;
-        let mut col = 0;
-        while col < w {
-            while col < w && mask[row * w + col] == 0 {
-                col += 1;
-            }
-            if col == w {
-                break;
-            }
-            let start = col;
-            while col < w && mask[row * w + col] != 0 {
-                col += 1;
-            }
-            let x0 = min[0] + start as f32 / w as f32 * sx;
-            let x1 = min[0] + col as f32 / w as f32 * sx;
-            let base = m.verts.len() as u32;
-            m.verts.push(Vec3::new(x0, y0, z));
-            m.verts.push(Vec3::new(x1, y0, z));
-            m.verts.push(Vec3::new(x1, y1, z));
-            m.verts.push(Vec3::new(x0, y1, z));
-            m.tris.push([base, base + 1, base + 2]);
-            m.tris.push([base, base + 2, base + 3]);
-        }
-    }
-    m
-}
-
-/// Grow a layer mask by one texel in every direction. Support tips and balls
-/// are only a few pixels across in the preview raster; without this their cap
-/// can sit just inside the shell and leave a thin ring of the inside visible.
-fn grow_mask(mask: &[u8], w: usize, h: usize) -> Vec<u8> {
-    let mut out = mask.to_vec();
-    for row in 0..h {
-        for col in 0..w {
-            if mask[row * w + col] == 0 {
-                continue;
-            }
-            for dr in -1_i32..=1 {
-                for dc in -1_i32..=1 {
-                    let r = row as i32 + dr;
-                    let c = col as i32 + dc;
-                    if r >= 0 && c >= 0 && (r as usize) < h && (c as usize) < w {
-                        out[r as usize * w + c as usize] = 1;
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
 // ------------------------------------------------------------------ palette
 
 const BG: egui::Color32 = egui::Color32::from_rgb(23, 25, 30);
@@ -4225,12 +4153,28 @@ impl App {
     /// inside of the model and support shells.
     fn cut_cap_mesh(&self, cut: f32) -> Option<Mesh> {
         let build = self.printers[self.printer_idx].build;
-        let w = 768usize;
-        let h = ((w as f32 * build[1] / build[0].max(1.0)).round() as usize).clamp(1, 2048);
-        let mask = grow_mask(&self.layer_mask(w, h)?, w, h);
         let min = [-build[0] * 0.5, -build[1] * 0.5];
         let max = [build[0] * 0.5, build[1] * 0.5];
-        Some(cap_mesh_from_mask(&mask, w, h, min, max, cut + 0.002))
+        let layer = self.slice.as_ref()?.layers.get(self.current_layer)?;
+        // The cap is the layer's own spans as flat rectangles, not a
+        // screen-resolution picture of it: no texel grid, no growing, and
+        // straight walls cost one quad however tall they are.
+        let rects = slicer::cap_rects(layer, min, max, 0.05);
+        let mut m = Mesh {
+            name: "cross-section".into(),
+            ..Default::default()
+        };
+        for [x0, y0, x1, y1] in rects {
+            let base = m.verts.len() as u32;
+            let z = cut + 0.002;
+            m.verts.push(Vec3::new(x0, y0, z));
+            m.verts.push(Vec3::new(x1, y0, z));
+            m.verts.push(Vec3::new(x1, y1, z));
+            m.verts.push(Vec3::new(x0, y1, z));
+            m.tris.push([base, base + 1, base + 2]);
+            m.tris.push([base, base + 2, base + 3]);
+        }
+        Some(m)
     }
 
     fn layer_preview(&mut self, ui: &mut egui::Ui) {
@@ -7237,40 +7181,6 @@ mod tests {
             Arc::ptr_eq(&first_tree, &app.models[0].pick_tree()),
             "moving the piece must not rebuild its picking tree"
         );
-    }
-
-    #[test]
-    fn a_cut_cap_fills_lit_runs_and_leaves_gaps_open() {
-        // 5x2 mask: one short run on the first row, one full run on the second.
-        let mask = [0u8, 1, 1, 0, 0, 1, 1, 1, 1, 1];
-        let cap = super::cap_mesh_from_mask(&mask, 5, 2, [0.0, 0.0], [5.0, 2.0], 1.0);
-        assert_eq!(cap.tris.len(), 4, "two runs need two quads");
-        assert!(cap.verts.iter().all(|v| v.z == 1.0));
-        // Every triangle lies in the cut plane and the total area is the lit area.
-        let mut area = 0.0;
-        for t in &cap.tris {
-            let a = cap.verts[t[0] as usize];
-            let b = cap.verts[t[1] as usize];
-            let c = cap.verts[t[2] as usize];
-            area += ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs() * 0.5;
-        }
-        // One texel is one unit here: row 0 covers 2, row 1 covers 5.
-        assert!((area - 7.0).abs() < 1e-5, "cap area was {area}");
-    }
-
-    #[test]
-    fn an_empty_layer_makes_an_empty_cut_cap() {
-        let cap = super::cap_mesh_from_mask(&[0; 8], 4, 2, [0.0, 0.0], [4.0, 2.0], 0.0);
-        assert!(cap.tris.is_empty());
-        assert!(cap.verts.is_empty());
-    }
-
-    #[test]
-    fn growing_a_cap_mask_covers_the_texels_around_a_support() {
-        // One lit texel in the middle becomes a filled 3x3 block.
-        let mask = [0u8, 0, 0, 0, 1, 0, 0, 0, 0];
-        let grown = super::grow_mask(&mask, 3, 3);
-        assert_eq!(grown, [1u8; 9]);
     }
 
     /// The window opens on an empty plate; the sample scene is opt-in, so a

@@ -4,6 +4,20 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Fixed
+
+- A hollow's ceiling earns its own forest of supports again. The heads a
+  funnel or a wall grew below it were being counted as covering it, and
+  the sparse pickers that ran in between never fired inside the merged
+  blob. Coverage now reaches only a short way above a head — the slope it
+  belongs to — so a different overhang across the void gets its own
+  columns, with the same spacing the ring below has.
+- Support generation is deterministic again: the island picker read its
+  candidates in hash order, so two runs could disagree by a head.
+- The cut plane's cap in the cross-section view is drawn from the layer's
+  own outlines instead of a picture of it. The texel grid that showed as
+  tiny squares on the cut is gone; a flat wall costs one quad.
+
 ### Changed
 
 - **Rings of overhang grow a ring of heads.** A rim or flange that peels open a few cells per layer used to earn one or two heads per layer — about half what the proven slicer plants under the same shape — because each layer only saw its own sliver of the band. The overhang coastline is now carried from layer to layer and walked as one shape: a head every tip distance along the whole ring by the time it closes, each on the surface it belongs to. On the knob that reported the gap: 26 columns became 54, spread around the base rim, the crown and the flange the way the reference plate shows them.
