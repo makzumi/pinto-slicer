@@ -4,6 +4,10 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Fixed
+
+- **Files the HALOT-X1 accepts.** HALOT Box lays every layer out in a 120-byte record, puts two thumbnails and a twelve-byte model size into the file, and repeats the motion settings after the pixel data; ours carried none of that, so the printer turned its nose up at files another slicer wrote. The writer now follows Creality's layout, including the zero anti-alias level this machine writes and both previews, so the plate shows up on the printer's screen before it starts.
+
 ## [0.1.16] - 2026-11-24
 
 ### Added
