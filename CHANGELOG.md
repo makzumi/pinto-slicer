@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-11-25
+
 ### Fixed
 
 - **Normal layers get their exposure again.** The first test print cured the bottom film and then printed almost nothing, and the file said why: three slots in the print parameters that HALOT Box fills with 5, 120, 6 and 1 were zero in ours, the slicer block put the exposures where UVtools guessed instead of where Creality's own writer puts them, and every layer record missed two fixed words that HALOT Box always writes. The writer now copies all of them from the files the printer accepts, so the light comes on for every layer, not just the first few.
@@ -183,7 +185,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.17...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.18...HEAD
+[0.1.18]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.18
 [0.1.17]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.17
 [0.1.16]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.16
 [0.1.15]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.15
