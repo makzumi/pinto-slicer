@@ -18,10 +18,11 @@ pub struct Recent {
 }
 
 impl Recent {
-    /// Read the list from the usual place, dropping files that are gone.
+    /// Read the list from its usual place, dropping files that are gone.
+    /// `name` picks the store: one list for models, one for projects.
     #[cfg(not(test))]
-    pub fn load() -> Self {
-        let file = store_path();
+    pub fn load(name: &str) -> Self {
+        let file = store_path(name);
         let mut recent = Self::read(&file);
         recent.prune();
         recent
@@ -111,15 +112,15 @@ fn same_file_key(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// `$XDG_CONFIG_HOME/pinto-slicer/recent`, else under the home folder.
+/// `$XDG_CONFIG_HOME/pinto-slicer/<name>`, else under the home folder.
 #[cfg(not(test))]
-fn store_path() -> PathBuf {
+fn store_path(name: &str) -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .or_else(config_home)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join("pinto-slicer").join("recent")
+    base.join("pinto-slicer").join(name)
 }
 
 #[cfg(not(test))]

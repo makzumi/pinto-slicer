@@ -565,8 +565,10 @@ pub struct App {
     /// Whether closing the window asks about unwritten changes. A window that
     /// exists to be photographed closes without a word.
     prompt_on_close: bool,
-    /// The files opened most recently, newest first.
-    recent: Recent,
+    /// The models opened most recently, newest first.
+    recent_models: Recent,
+    /// The projects opened or saved most recently, newest first.
+    recent_projects: Recent,
     project_path: Option<PathBuf>,
     /// The picture the plate view was last drawn as, and what it was drawn
     /// from. A heavy plate takes tens of milliseconds to rasterise, and the
@@ -622,6 +624,7 @@ pub struct Launch {
 
 impl App {
     pub fn new(launch: Launch) -> Self {
+        let recents = startup_recents();
         let Launch {
             screenshot,
             open,
@@ -686,7 +689,8 @@ impl App {
             mirror_prompt: false,
             mirror_axis: 0,
             prompt_on_close: !wait_for_runs,
-            recent: startup_recent(),
+            recent_models: recents.0,
+            recent_projects: recents.1,
             project_path: None,
             picture: None,
             gpu: None,
@@ -1394,12 +1398,16 @@ impl App {
 
     /// The files opened last, newest first. A project opens like the File
     /// menu's own open; a model joins the plate the way a dropped file does.
-    fn recent_files_menu(&mut self, ui: &mut egui::Ui) {
-        if self.recent.is_empty() {
-            ui.add_enabled(false, egui::Button::new("Nothing opened yet"));
+    fn recent_menu(&mut self, ui: &mut egui::Ui, kind: RecentKind) {
+        let (list, empty_note) = match kind {
+            RecentKind::Model => (&self.recent_models, "No model opened yet"),
+            RecentKind::Project => (&self.recent_projects, "No project opened yet"),
+        };
+        if list.is_empty() {
+            ui.add_enabled(false, egui::Button::new(empty_note));
             return;
         }
-        let entries = self.recent.paths().to_vec();
+        let entries = list.paths().to_vec();
         let mut chosen = None;
         for path in &entries {
             let name = path
@@ -1416,25 +1424,24 @@ impl App {
         }
         if let Some(path) = chosen {
             ui.close_menu();
-            self.open_recent(&path);
+            self.open_recent(&path, kind);
         }
     }
 
-    fn open_recent(&mut self, path: &Path) {
+    /// Open one row of a recent list. Each list only ever holds its own kind,
+    /// so the menu that offered the file already knows what it is.
+    fn open_recent(&mut self, path: &Path, kind: RecentKind) {
         if !path.exists() {
-            self.recent.forget(path);
+            match kind {
+                RecentKind::Model => self.recent_models.forget(path),
+                RecentKind::Project => self.recent_projects.forget(path),
+            }
             self.status = format!("{} is no longer on disk.", path.display());
             return;
         }
-        let is_project = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case(dialog::PROJECT_EXTENSION))
-            || project::is_project(path);
-        if is_project {
-            self.start_project_open(path.to_path_buf());
-        } else {
-            self.load_path(path);
+        match kind {
+            RecentKind::Project => self.start_project_open(path.to_path_buf()),
+            RecentKind::Model => self.load_path(path),
         }
     }
 
@@ -1726,7 +1733,7 @@ impl App {
             Ok(project::IoResult::Saved(path)) => {
                 self.project_path = Some(path.clone());
                 self.saved_serial = self.save_serial;
-                self.recent.remember(&path);
+                self.recent_projects.remember(&path);
                 self.sync_export_dir(&path);
                 self.status = format!("Project saved to {}.", path.display());
                 if self.quit_after_save {
@@ -1746,7 +1753,7 @@ impl App {
                 self.project_path = Some(path.clone());
                 self.history = Some(project::History::new(self.project()));
                 self.saved_serial = self.change_serial;
-                self.recent.remember(&path);
+                self.recent_projects.remember(&path);
                 self.sync_export_dir(&path);
                 self.status = format!("Project opened from {}.", path.display());
             }
@@ -2103,7 +2110,7 @@ impl App {
                     self.project_path = Some(path.to_path_buf());
                     self.history = Some(project::History::new(self.project()));
                     self.saved_serial = self.change_serial;
-                    self.recent.remember(path);
+                    self.recent_projects.remember(path);
                     self.sync_export_dir(path);
                     self.status = format!("Project opened from {}.", path.display());
                 }
@@ -2124,7 +2131,7 @@ impl App {
                 );
                 self.refresh_world();
                 self.touched();
-                self.recent.remember(path);
+                self.recent_models.remember(path);
                 self.arrange_all(false);
                 // A new piece arrives floating wherever its own file put it;
                 // it lands on the plate like the others before it is seen.
@@ -2616,7 +2623,12 @@ impl App {
                             ui.close_menu();
                             self.open_project();
                         }
-                        ui.menu_button("Open recent", |ui| self.recent_files_menu(ui));
+                        ui.menu_button("Open recent model", |ui| {
+                            self.recent_menu(ui, RecentKind::Model)
+                        });
+                        ui.menu_button("Open recent project", |ui| {
+                            self.recent_menu(ui, RecentKind::Project)
+                        });
                         ui.separator();
                         if ui.button("Save project  Ctrl+S").clicked() {
                             ui.close_menu();
@@ -5122,7 +5134,7 @@ impl App {
                 help_section(ui, "The rest");
                 ui.label(
                     egui::RichText::new(
-                        "The File menu lists the last ten files opened, under Open recent. \
+                        "The File menu keeps the last ten models and the last ten projects, each under its own Open recent. \
                          Under the viewport's caption, Persp and Ortho swap the lens, and \
                          the home button under the orientation cube goes back to the \
                          three-quarter view. The left strip can copy what is picked as \
@@ -6148,16 +6160,42 @@ fn paint_preview(p: &egui::Painter, rect: egui::Rect, solid: &Mesh, ghost: &Mesh
     );
 }
 
-/// The desktop's own recent list, except in tests, which keep their rows in a
-/// throwaway file so a test run never rewrites the real menu.
+/// Which of the two recent lists a row belongs to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RecentKind {
+    Model,
+    Project,
+}
+
+/// The desktop's own two recent lists, except in tests, which keep their rows
+/// in throwaway files so a test run never rewrites the real menus.
 #[cfg(not(test))]
-fn startup_recent() -> Recent {
-    Recent::load()
+fn startup_recents() -> (Recent, Recent) {
+    let models = Recent::load("recent-models");
+    let projects = Recent::load("recent-projects");
+    // The list used to be one file of everything opened: split it once, the
+    // first time the two new stores are empty, so no row is lost.
+    if models.is_empty() && projects.is_empty() {
+        let mut models = models;
+        let mut projects = projects;
+        for path in Recent::load("recent").paths().to_vec() {
+            if project::is_project(&path) {
+                projects.remember(&path);
+            } else {
+                models.remember(&path);
+            }
+        }
+        return (models, projects);
+    }
+    (models, projects)
 }
 
 #[cfg(test)]
-fn startup_recent() -> Recent {
-    Recent::at(std::env::temp_dir().join("pinto-slicer-test-recent"))
+fn startup_recents() -> (Recent, Recent) {
+    (
+        Recent::at(std::env::temp_dir().join("pinto-slicer-test-recent-models")),
+        Recent::at(std::env::temp_dir().join("pinto-slicer-test-recent-projects")),
+    )
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -6593,23 +6631,31 @@ mod tests {
         let mut app = app_with_a_piece();
         app.load_path(&path);
         let remembered = std::fs::canonicalize(&path).unwrap();
-        assert_eq!(app.recent.paths().first(), Some(&remembered));
+        assert_eq!(
+            app.recent_projects.paths().first(),
+            Some(&remembered),
+            "a project lands on the project list"
+        );
+        assert!(
+            !app.recent_models.paths().contains(&remembered),
+            "a project never lands on the model list"
+        );
         assert!(
             !app.unsaved_changes(),
             "a project that was just opened is not waiting to be saved"
         );
 
         // Opening the same file again must not add a second row.
-        let before = app.recent.paths().len();
+        let before = app.recent_projects.paths().len();
         app.load_path(&path);
-        assert_eq!(app.recent.paths().len(), before);
+        assert_eq!(app.recent_projects.paths().len(), before);
 
         // A row whose file has gone is dropped, with a word on the plate.
         let gone = std::env::temp_dir().join("resin_slicer_recent_gone.rslice");
-        app.recent.remember(&gone);
-        assert_eq!(app.recent.paths().first(), Some(&gone));
-        app.open_recent(&gone);
-        assert!(!app.recent.paths().contains(&gone));
+        app.recent_projects.remember(&gone);
+        assert_eq!(app.recent_projects.paths().first(), Some(&gone));
+        app.open_recent(&gone, RecentKind::Project);
+        assert!(!app.recent_projects.paths().contains(&gone));
         assert!(app.status.contains("no longer on disk"), "{}", app.status);
         let _ = std::fs::remove_file(path);
     }

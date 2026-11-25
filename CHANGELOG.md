@@ -4,6 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- Open recent is two lists now: the last ten models and the last ten
+  projects, each under its own menu. A row from the one combined list
+  moves to whichever side it belongs to the first time the app starts.
+
 ## [0.1.22] - 2026-11-25
 
 ### Changed
