@@ -114,7 +114,7 @@ fn same_file_key(path: &Path) -> PathBuf {
 
 /// `$XDG_CONFIG_HOME/pinto-slicer/<name>`, else under the home folder.
 #[cfg(not(test))]
-fn store_path(name: &str) -> PathBuf {
+pub(crate) fn store_path(name: &str) -> PathBuf {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())

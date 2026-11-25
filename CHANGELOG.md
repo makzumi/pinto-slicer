@@ -4,6 +4,16 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Added
+
+- The Configuration menu by the steps names the supports and export
+  settings under rows you can load back in any project. Default is the
+  built-in profile and stays read-only; your own rows sit under it, each
+  with an × that asks before it removes. Save current configuration is
+  only clickable when something has changed, and switching away with
+  changes up asks whether to update the row, save as new, or discard —
+  listing every value that moved, in the panels' own words.
+
 ### Changed
 
 - Open recent is two lists now: the last ten models and the last ten

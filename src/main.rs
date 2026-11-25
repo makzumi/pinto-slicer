@@ -13,6 +13,7 @@ mod inspect;
 mod layout;
 mod mesh;
 mod nav_cube;
+mod presets;
 mod project;
 mod recent;
 mod render;
