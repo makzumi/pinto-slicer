@@ -1217,12 +1217,21 @@ fn a_floating_cap_grows_a_ring_of_heads_that_share_columns() {
         .filter(|t| t.island && (t.pos.z - 15.0).abs() < 0.5)
         .collect();
     assert!(
-        cap.len() >= 12,
-        "the cap ring needs a real handful of heads, got {}",
+        cap.len() >= 20,
+        "the cap underside needs a real grid of heads, got {}",
+        cap.len()
+    );
+    let wall = cap
+        .iter()
+        .filter(|t| t.pos.x.abs().max(t.pos.y.abs()) > 7.0)
+        .count();
+    assert!(
+        wall >= 10,
+        "the wall carries a head every spacing, got {wall} of {}",
         cap.len()
     );
     assert!(
-        model.branches.len() >= 5,
+        model.branches.len() >= 10,
         "heads this close must share columns, not each stand on one"
     );
     assert!(

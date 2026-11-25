@@ -439,24 +439,35 @@ fn add_island_contacts(
     out: &mut Result,
     supports: &mut Vec<usize>,
 ) {
-    // HALOT Box samples islands on the same tip grid as everything else:
-    // the interior at the tip spacing and the rim three quarters of it
-    // (Prusa's rim factor), so a floating shelf grows a ring of heads that
-    // route into shared columns and cross-brace into one tree instead of a
-    // single lonely column.
+    // Islands get the same density the column slicers give them: one head
+    // per tip-spacing square of the interior, and a head every spacing
+    // along the wall. Prusa's sampler walks the outer wall of a small
+    // overhang for the same reason ("add the outer wall (of the overhang)
+    // to ensure it is correct supported instead",
+    // TreeSupport::sample_overhang_area) — a knob's crown is exactly that
+    // small ring, and a wall of heads routes into shared columns and
+    // braces into one tree instead of a single lonely column.
     let inner = cfg.touch_tip_distance.clamp(2.0, 24.0);
-    let outline = inner * 0.75;
 
-    let interior = select_cells(component, grid, inner, false);
-    let rim = select_cells(component, grid, outline, true);
-    for (x, y) in interior.into_iter().chain(rim) {
+    let interior = grid_cells(&component.cells, grid, inner);
+    let rim = sample_outline(&trace_outline(&component.cells, grid), grid, inner);
+    let candidates = interior
+        .into_iter()
+        .map(|p| (p, false))
+        .chain(rim.into_iter().map(|p| (p, true)));
+    for ((x, y), on_wall) in candidates {
         let (px, py) = grid.point(x, y);
-        // The two selections can meet at the rim. Avoid overlapping heads but
-        // do not use the larger propagated support radius inside a new island.
+        // The wall walk can step close to the interior squares. Keep the
+        // heads apart by half a spacing there, but do not use the larger
+        // propagated support radius inside a new island.
+        let keep_clear = if on_wall {
+            (inner * 0.5).powi(2)
+        } else {
+            cfg.tip.upper_diameter.max(0.2).powi(2)
+        };
         let duplicate = supports.iter().any(|id| {
             let contact = &out.contacts[*id];
-            (contact.pos.x - px).powi(2) + (contact.pos.y - py).powi(2)
-                < cfg.tip.upper_diameter.max(0.2).powi(2)
+            (contact.pos.x - px).powi(2) + (contact.pos.y - py).powi(2) < keep_clear
         });
         if duplicate {
             continue;
@@ -701,6 +712,126 @@ fn select_cells(
         selected.push(next);
     }
     selected
+}
+
+/// One head per spacing x spacing square that overlaps the component,
+/// sitting at the cell nearest the middle of its square. This is the
+/// count the column slicers actually place; the spread-out picker above
+/// stays for the gentler region shapes.
+fn grid_cells(cells: &[usize], grid: Grid, spacing: f32) -> Vec<(usize, usize)> {
+    let spacing = spacing.max(grid.cell);
+    let step = ((spacing / grid.cell).round() as usize).max(1);
+    let mut best: std::collections::HashMap<(usize, usize), (usize, usize, f32)> =
+        std::collections::HashMap::with_capacity(cells.len());
+    for &idx in cells {
+        let x = idx % grid.w;
+        let y = idx / grid.w;
+        let key = (x / step, y / step);
+        let cx = (key.0 * step) as f32 + (step as f32 - 1.0) * 0.5;
+        let cy = (key.1 * step) as f32 + (step as f32 - 1.0) * 0.5;
+        let d = (x as f32 - cx).powi(2) + (y as f32 - cy).powi(2);
+        use std::collections::hash_map::Entry;
+        match best.entry(key) {
+            Entry::Vacant(slot) => {
+                slot.insert((x, y, d));
+            }
+            Entry::Occupied(mut slot) => {
+                if d < slot.get().2 {
+                    *slot.get_mut() = (x, y, d);
+                }
+            }
+        }
+    }
+    best.into_values().map(|(x, y, _)| (x, y)).collect()
+}
+
+/// The outline cells in walking order (Moore tracing), so a shelf's edge
+/// can carry a head every tip spacing. Prusa's sampler walks the outer
+/// wall of a small overhang for the same reason; the reference is
+/// TreeSupport::sample_overhang_area, "add the outer wall (of the
+/// overhang) to ensure it is correct supported instead".
+fn trace_outline(cells: &[usize], grid: Grid) -> Vec<(usize, usize)> {
+    if cells.is_empty() {
+        return Vec::new();
+    }
+    let membership: std::collections::HashSet<usize> = cells.iter().copied().collect();
+    let at = |x: i32, y: i32| -> Option<usize> {
+        if x < 0 || y < 0 || x >= grid.w as i32 || y >= grid.h as i32 {
+            return None;
+        }
+        membership.get(&(y as usize * grid.w + x as usize)).copied()
+    };
+    // The leftmost-topmost cell's left neighbour is outside by construction.
+    let start = cells
+        .iter()
+        .copied()
+        .map(|i| (i % grid.w, i / grid.w))
+        .min()
+        .unwrap();
+    let sx = start.0 as i32;
+    let sy = start.1 as i32;
+    // Clockwise from East.
+    const DIRS: [(i32, i32); 8] = [
+        (1, 0),
+        (1, 1),
+        (0, 1),
+        (-1, 1),
+        (-1, 0),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+    ];
+    let mut path = vec![start];
+    let mut cur = (sx, sy);
+    let mut from = (sx - 1, sy);
+    let limit = cells.len() * 8 + 8;
+    for _ in 0..limit {
+        let fi = DIRS
+            .iter()
+            .position(|d| (cur.0 + d.0, cur.1 + d.1) == from)
+            .unwrap_or(0);
+        let mut next = None;
+        for k in 1..=8 {
+            let d = DIRS[(fi + k) % 8];
+            let n = (cur.0 + d.0, cur.1 + d.1);
+            if at(n.0, n.1).is_some() {
+                // The cell scanned just before the hit is the new backtrack
+                // point, and it is outside the component by construction.
+                let pd = DIRS[(fi + k - 1) % 8];
+                from = (cur.0 + pd.0, cur.1 + pd.1);
+                cur = n;
+                next = Some(n);
+                break;
+            }
+        }
+        let Some(n) = next else { break };
+        if n == (sx, sy) {
+            break;
+        }
+        path.push((n.0 as usize, n.1 as usize));
+    }
+    path
+}
+
+/// A head every spacing along the walked wall. Small loops still earn up
+/// to three heads (Prusa's minimum), one-cell loops keep their single.
+fn sample_outline(path: &[(usize, usize)], grid: Grid, spacing: f32) -> Vec<(usize, usize)> {
+    if path.len() < 2 {
+        return path.to_vec();
+    }
+    let step = ((spacing / grid.cell).round() as usize).max(1);
+    let mut sampled = Vec::new();
+    let mut i = 0;
+    while i < path.len() {
+        sampled.push(path[i]);
+        i += step;
+    }
+    let perimeter = path.len() as f32 * grid.cell;
+    let want = ((perimeter / spacing).ceil() as usize).clamp(1, 3);
+    if sampled.len() < want {
+        sampled = (0..want).map(|k| path[k * path.len() / want]).collect();
+    }
+    sampled
 }
 
 fn nearest_cell(cells: &[usize], grid: Grid, center: (f32, f32)) -> (usize, usize) {
