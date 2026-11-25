@@ -1200,10 +1200,11 @@ impl App {
         self.finish_model_edit(&(first..first + count).collect::<Vec<_>>(), true);
         self.status = match mirror {
             Some(axis) => format!(
-                "Mirrored {count} piece(s) across {} beside the original.",
+                "Mirrored {count} {} across {} beside the original.",
+                piece_word(count),
                 ["X", "Y", "Z"][axis]
             ),
-            None => format!("Copied {count} piece(s)."),
+            None => format!("Copied {count} {}.", piece_word(count)),
         };
     }
 
@@ -1247,7 +1248,7 @@ impl App {
         self.refresh_world();
         self.remap_supports(&map);
         self.touched();
-        self.status = format!("Removed {} piece(s).", doomed.len());
+        self.status = format!("Removed {} {}.", doomed.len(), piece_word(doomed.len()));
     }
 
     /// Keep every piece at the height the panel asks for: the lowest point of
@@ -1602,7 +1603,10 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.set_max_width(300.0);
-                ui.label(egui::RichText::new(format!("{picked} piece(s) picked.")).color(MUTED));
+                ui.label(
+                    egui::RichText::new(format!("{picked} {} picked.", piece_word(picked)))
+                        .color(MUTED),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Copies").color(TEXT));
@@ -1651,7 +1655,10 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.set_max_width(320.0);
-                ui.label(egui::RichText::new(format!("{picked} piece(s) picked.")).color(MUTED));
+                ui.label(
+                    egui::RichText::new(format!("{picked} {} picked.", piece_word(picked)))
+                        .color(MUTED),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new("Across").color(TEXT));
@@ -1669,7 +1676,7 @@ impl App {
                 ui.add_space(6.0);
                 ui.label(
                     egui::RichText::new("The mirrored copy sits beside the original.")
-                        .size(11.0)
+                        .size(11.5)
                         .color(MUTED),
                 );
                 ui.add_space(12.0);
@@ -2044,7 +2051,7 @@ impl App {
                         finished = true;
                     }
                     supports::JobMsg::Failed(msg) => {
-                        self.support_note = format!("support generation stopped: {msg}");
+                        self.support_note = format!("Support generation stopped: {msg}");
                         finished = true;
                     }
                 }
@@ -2595,7 +2602,7 @@ impl App {
         egui::ComboBox::from_id_salt(id)
             .selected_text(
                 egui::RichText::new(format!("{}  {}", icons::PRINTER, current.name))
-                    .size(13.0)
+                    .size(13.5)
                     .color(TEXT),
             )
             .width(width)
@@ -2707,7 +2714,7 @@ impl App {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .add(
-                                egui::Button::new(egui::RichText::new("?").size(13.0).color(MUTED))
+                                egui::Button::new(egui::RichText::new("?").size(13.5).color(MUTED))
                                     .fill(PILL)
                                     .rounding(egui::Rounding::same(8.0))
                                     .min_size(egui::vec2(28.0, 28.0)),
@@ -2743,7 +2750,7 @@ impl App {
                     if let Some(label) = busy {
                         busy_indicator(ui, label);
                     } else {
-                        ui.label(egui::RichText::new(&self.status).size(12.0).color(MUTED));
+                        ui.label(egui::RichText::new(&self.status).size(12.5).color(MUTED));
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
@@ -2778,7 +2785,7 @@ impl App {
                     if n == 0 {
                         ui.label(
                             egui::RichText::new("Slice the plate to step through the layers.")
-                                .size(12.0)
+                                .size(12.5)
                                 .color(MUTED),
                         );
                         self.playback.playing = false;
@@ -2820,7 +2827,7 @@ impl App {
                             n,
                             z
                         ))
-                        .size(12.0)
+                        .size(12.5)
                         .color(TEXT),
                     );
                 });
@@ -2830,7 +2837,7 @@ impl App {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         let mut speed = self.playback.speed;
-                        ui.label(egui::RichText::new("Speed").size(11.0).color(MUTED));
+                        ui.label(egui::RichText::new("Speed").size(11.5).color(MUTED));
                         for s in SPEEDS {
                             let on = (speed - s).abs() < 1e-3;
                             let hint = format!("{:.2} s per layer", BASE_PER_LAYER / s);
@@ -3170,7 +3177,7 @@ impl App {
             ui.add_space(2.0);
             ui.label(
                 egui::RichText::new(p.note.clone())
-                    .size(11.0)
+                    .size(11.5)
                     .italics()
                     .color(MUTED),
             );
@@ -3187,7 +3194,7 @@ impl App {
                 egui::RichText::new(
                     "Spread the pieces out in a tidy grid, with room to peel them off the plate.",
                 )
-                .size(12.0)
+                .size(12.5)
                 .color(MUTED),
             );
             if accent_button(ui, "Arrange all on the plate", ui.available_width()) {
@@ -3225,7 +3232,7 @@ impl App {
             ui.add_space(2.0);
             if ui
                 .add(
-                    egui::Button::new(egui::RichText::new("Drop onto the plate").size(13.0))
+                    egui::Button::new(egui::RichText::new("Drop onto the plate").size(13.5))
                         .fill(PILL)
                         .rounding(egui::Rounding::same(8.0))
                         .min_size(egui::vec2(ui.available_width(), 30.0)),
@@ -3239,7 +3246,7 @@ impl App {
             }
             ui.label(
                 egui::RichText::new("Pieces sit on the plate here; the support run lifts them by the gap when it needs to.")
-                    .size(11.0)
+                    .size(11.5)
                     .color(MUTED),
             );
         });
@@ -3248,7 +3255,7 @@ impl App {
             if self.models.is_empty() {
                 ui.label(
                     egui::RichText::new("Nothing on the plate yet.")
-                        .size(12.0)
+                        .size(12.5)
                         .color(MUTED),
                 );
                 return;
@@ -3318,17 +3325,17 @@ impl App {
                     }
                     Tool::Move => {
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("X").size(12.0).color(MUTED));
+                            ui.label(egui::RichText::new("X").size(12.5).color(MUTED));
                             changed |= ui
                                 .add(egui::DragValue::new(&mut t.pos.x).speed(0.5).suffix(" mm"))
                                 .changed();
-                            ui.label(egui::RichText::new("Y").size(12.0).color(MUTED));
+                            ui.label(egui::RichText::new("Y").size(12.5).color(MUTED));
                             changed |= ui
                                 .add(egui::DragValue::new(&mut t.pos.y).speed(0.5).suffix(" mm"))
                                 .changed();
                         });
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Z").size(12.0).color(MUTED));
+                            ui.label(egui::RichText::new("Z").size(12.5).color(MUTED));
                             changed |= ui
                                 .add(egui::DragValue::new(&mut t.pos.z).speed(0.2).suffix(" mm"))
                                 .changed();
@@ -3341,15 +3348,15 @@ impl App {
                         let mut z = before.z;
                         let mut turned = false;
                         ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("X").size(12.0).color(MUTED));
+                            ui.label(egui::RichText::new("X").size(12.5).color(MUTED));
                             turned |= ui
                                 .add(egui::DragValue::new(&mut x).speed(1.0).suffix("°"))
                                 .changed();
-                            ui.label(egui::RichText::new("Y").size(12.0).color(MUTED));
+                            ui.label(egui::RichText::new("Y").size(12.5).color(MUTED));
                             turned |= ui
                                 .add(egui::DragValue::new(&mut y).speed(1.0).suffix("°"))
                                 .changed();
-                            ui.label(egui::RichText::new("Z").size(12.0).color(MUTED));
+                            ui.label(egui::RichText::new("Z").size(12.5).color(MUTED));
                             turned |= ui
                                 .add(egui::DragValue::new(&mut z).speed(1.0).suffix("°"))
                                 .changed();
@@ -3363,7 +3370,7 @@ impl App {
                                 egui::RichText::new(
                                     "Every picked piece turns about its own centre.",
                                 )
-                                .size(11.0)
+                                .size(11.5)
                                 .color(MUTED),
                             );
                         }
@@ -3375,7 +3382,7 @@ impl App {
                         let mut s = t.scale.x;
                         ui.checkbox(
                             &mut linked,
-                            egui::RichText::new("Same on every side").size(12.0),
+                            egui::RichText::new("Same on every side").size(12.5),
                         );
                         if linked {
                             if ui
@@ -3437,7 +3444,7 @@ impl App {
                     );
                     if ui
                         .add(
-                            egui::Button::new(egui::RichText::new("Scale down to fit").size(12.0))
+                            egui::Button::new(egui::RichText::new("Scale down to fit").size(12.5))
                                 .fill(PILL)
                                 .rounding(egui::Rounding::same(8.0))
                                 .min_size(egui::vec2(ui.available_width(), 26.0)),
@@ -3480,7 +3487,7 @@ impl App {
             if self.models.is_empty() {
                 ui.label(
                     egui::RichText::new("No models loaded.")
-                        .size(12.0)
+                        .size(12.5)
                         .color(MUTED),
                 );
             }
@@ -3515,7 +3522,7 @@ impl App {
             ui.horizontal(|ui| {
                 if ui
                     .add(
-                        egui::Button::new(egui::RichText::new("Remove").size(12.0))
+                        egui::Button::new(egui::RichText::new("Remove").size(12.5))
                             .fill(PILL)
                             .rounding(egui::Rounding::same(8.0)),
                     )
@@ -3545,7 +3552,7 @@ impl App {
             let was_on = self.settings.supports.enabled;
             ui.checkbox(
                 &mut self.settings.supports.enabled,
-                egui::RichText::new("Grow supports").size(13.0),
+                egui::RichText::new("Grow supports").size(13.5),
             );
             // The switch is not a settings change to re-run: turning it off puts
             // the pieces back down and throws the grown supports away (below),
@@ -3564,7 +3571,7 @@ impl App {
                         .color(TEXT)
                         .strong(),
                 );
-                ui.label(egui::RichText::new("tips").size(12.0).color(MUTED));
+                ui.label(egui::RichText::new("tips").size(12.5).color(MUTED));
                 let mut line = format!("· {} trunks · {} branches", s.trunks, s.branches);
                 if s.on_model > 0 {
                     line.push_str(&format!(" · {} on the part", s.on_model));
@@ -3581,7 +3588,7 @@ impl App {
                         "{} tips found nothing solid to stand on.",
                         s.dropped
                     ))
-                    .size(11.0)
+                    .size(11.5)
                     .color(WARN),
                 );
             }
@@ -3838,7 +3845,7 @@ impl App {
                     for (shape, name) in [(TipShape::Cone, "Cone"), (TipShape::Cylinder, "Pin")] {
                         let on = self.settings.supports.tip.shape == shape;
                         let btn =
-                            egui::Button::new(egui::RichText::new(name).size(12.0).color(if on {
+                            egui::Button::new(egui::RichText::new(name).size(12.5).color(if on {
                                 egui::Color32::WHITE
                             } else {
                                 MUTED
@@ -3859,7 +3866,7 @@ impl App {
                     {
                         let on = self.settings.supports.tip.contact_shape == shape;
                         let btn =
-                            egui::Button::new(egui::RichText::new(name).size(12.0).color(if on {
+                            egui::Button::new(egui::RichText::new(name).size(12.5).color(if on {
                                 egui::Color32::WHITE
                             } else {
                                 MUTED
@@ -3946,7 +3953,7 @@ impl App {
                     .changed();
                 ui.checkbox(
                     &mut self.show_debug,
-                    egui::RichText::new("Show overhang faces").size(12.0),
+                    egui::RichText::new("Show overhang faces").size(12.5),
                 );
             });
             ui.label(
@@ -3955,7 +3962,7 @@ impl App {
                      tips is set by Density at the top of the tab. Red faces are the ones that \
                      get a support.",
                 )
-                .size(11.0)
+                .size(11.5)
                 .color(MUTED),
             );
         });
@@ -4188,7 +4195,7 @@ impl App {
                             .color(TEXT)
                             .strong(),
                     );
-                    ui.label(egui::RichText::new("layers").size(12.0).color(MUTED));
+                    ui.label(egui::RichText::new("layers").size(12.5).color(MUTED));
                     ui.add_space(10.0);
                     ui.label(
                         egui::RichText::new(format!(
@@ -4227,7 +4234,7 @@ impl App {
                     if self.slice.is_none() {
                         ui.label(
                             egui::RichText::new("Nothing is sliced yet.")
-                                .size(12.0)
+                                .size(12.5)
                                 .color(MUTED),
                         );
                         return;
@@ -4362,7 +4369,7 @@ impl App {
         card(ui, "JOB FILE", |ui| {
             ui.label(
                 egui::RichText::new(output_format.label())
-                    .size(13.0)
+                    .size(13.5)
                     .color(TEXT)
                     .strong(),
             );
@@ -4373,13 +4380,13 @@ impl App {
                     native.1,
                     output_format.extension()
                 ))
-                .size(12.0)
+                .size(12.5)
                 .color(ACCENT),
             );
             if x1_pixel_pair {
                 ui.label(
                     egui::RichText::new(
-                        "HALOT-X1 job files use the newer pixel-pair RLE; open them with UVtools 7.1.0 or newer.",
+                        "HALOT-X1 job files use the newer pixel-pair RLE; UVtools cannot open them yet, but the printer takes them.",
                     )
                     .size(10.5)
                     .color(MUTED),
@@ -4409,7 +4416,7 @@ impl App {
                 egui::RichText::new(
                     "One save dialog chooses both the file name and the folder; the extension is added automatically.",
                 )
-                .size(11.0)
+                .size(11.5)
                 .color(MUTED),
             );
             ui.add_space(6.0);
@@ -4426,7 +4433,7 @@ impl App {
             if self.picker.busy() {
                 ui.label(
                     egui::RichText::new("Waiting for the file dialog…")
-                        .size(11.0)
+                        .size(11.5)
                         .color(MUTED),
                 );
             }
@@ -4434,7 +4441,7 @@ impl App {
                 egui::RichText::new(
                     "The LCD resolution always stays native. Format choices are limited to those accepted by this printer profile.",
                 )
-                .size(11.0)
+                .size(11.5)
                 .color(MUTED),
             );
         });
@@ -4484,7 +4491,7 @@ impl App {
                 egui::RichText::new(
                     "Writers follow documented open-source format layouts. Test a short print on your machine before a long job.",
                 )
-                .size(11.0)
+                .size(11.5)
                 .italics()
                 .color(WARN),
             );
@@ -4736,7 +4743,7 @@ impl App {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        "Open an STL or OBJ file to start  (Ctrl+O)",
+                        "Open an STL or OBJ file to start (Ctrl+O)",
                         egui::FontId::proportional(16.0),
                         MUTED,
                     );
@@ -4986,7 +4993,7 @@ impl App {
                         "{count} {} selected",
                         if count == 1 { "piece" } else { "pieces" }
                     ))
-                    .size(13.0)
+                    .size(13.5)
                     .color(TEXT)
                     .strong(),
                 );
@@ -5050,7 +5057,7 @@ impl App {
                 small_label(ui, "DISTRIBUTE CENTRES");
                 ui.label(
                     egui::RichText::new("Keep the two outer centres fixed on X or Y.")
-                        .size(11.0)
+                        .size(11.5)
                         .color(MUTED),
                 );
                 ui.horizontal(|ui| {
@@ -5091,7 +5098,7 @@ impl App {
                 });
                 ui.label(
                     egui::RichText::new("Equal gaps preserve the selection group's centre.")
-                        .size(11.0)
+                        .size(11.5)
                         .color(MUTED),
                 );
             });
@@ -5125,25 +5132,45 @@ impl App {
                     .size(12.5),
                 );
                 ui.add_space(8.0);
+                help_section(ui, "In the view");
                 ui.label(
                     egui::RichText::new(
-                        "In the view\n                         Right-drag to orbit, middle-drag to pan, scroll to zoom.\n                         Left-click picks a piece, shift-click adds to the pick, and \
-                         left-dragging a box picks everything it covers.\n                         The handles move, turn and size what is picked.\n                         Every button in the left strip shows its key on hover; the \
-                         same keys work while the view has the keyboard: W G R S F V, \
-                         Ctrl+O open models, Ctrl+Shift+O open project, Ctrl+S save, \
-                         Ctrl+Shift+S save as, Ctrl+Z undo, Ctrl+Shift+Z or Ctrl+Y redo, \
-                         Ctrl+D duplicate, Ctrl+A pick everything, Escape to let go, \
-                         Delete or Backspace to remove, Ctrl+Q to quit. Closing the window \
-                         with work that has not been saved asks first: the File menu also \
-                         lists the last ten files opened, under Open recent. Under the \
-                         viewport's caption, Persp and Ortho swap the lens, and the house \
-                         under the orientation cube goes back to the three-quarter view. The left strip copies \
-                         what is picked as many times as asked for, and can put a mirrored copy beside it. A \
-                         turn ring can be made to land on round numbers from the Snap box in the numbers window.
-
-                         The Align & space dialog can be dragged by its title bar. Projects \
-                         embed their meshes and settings in a single .rslice file; supports \
-                         are rebuilt with Generate Supports after opening.",
+                        "Right-drag to orbit, middle-drag to pan, scroll to zoom. \
+                         Left-click picks a piece, shift-click adds to the pick, and \
+                         left-dragging a box picks everything it covers. The handles \
+                         move, turn and size what is picked.",
+                    )
+                    .size(12.5),
+                );
+                ui.add_space(6.0);
+                help_section(ui, "Keyboard");
+                ui.label(
+                    egui::RichText::new(
+                        "Every button in the left strip shows its key on hover, and the \
+                         keys work while the view has the keyboard: W G R S F V pick the \
+                         tools, Ctrl+O opens models, Ctrl+Shift+O opens a project, \
+                         Ctrl+S saves, Ctrl+Shift+S saves as, Ctrl+Z undoes, \
+                         Ctrl+Shift+Z or Ctrl+Y redoes, Ctrl+D duplicates, Ctrl+A picks \
+                         everything, Escape lets go, Delete or Backspace removes, and \
+                         Ctrl+Q quits. Closing the window with work that has not been \
+                         saved asks first.",
+                    )
+                    .size(12.5),
+                );
+                ui.add_space(6.0);
+                help_section(ui, "The rest");
+                ui.label(
+                    egui::RichText::new(
+                        "The File menu lists the last ten files opened, under Open recent. \
+                         Under the viewport's caption, Persp and Ortho swap the lens, and \
+                         the home button under the orientation cube goes back to the \
+                         three-quarter view. The left strip can copy what is picked as \
+                         many times as asked for, or put a mirrored copy beside it. A \
+                         turn ring can be made to land on round numbers from the Snap box \
+                         in the numbers window, and the Align & space dialog can be \
+                         dragged by its title bar. Projects embed their meshes and \
+                         settings in a single .rslice file; supports are rebuilt with \
+                         Generate Supports after opening.",
                     )
                     .size(12.5),
                 );
@@ -5152,7 +5179,7 @@ impl App {
                     egui::RichText::new(
                         "Printer jobs follow the corresponding open-source format layouts. Test a short print on your machine before a long job.",
                     )
-                    .size(11.0)
+                    .size(11.5)
                     .italics()
                     .color(WARN),
                 );
@@ -5165,7 +5192,7 @@ impl App {
                          Support-generation code is adapted from PrusaSlicer; upstream \
                          copyrights remain with their respective holders.",
                     )
-                    .size(11.0)
+                    .size(11.5)
                     .color(MUTED),
                 );
                 ui.hyperlink_to(
@@ -5258,7 +5285,7 @@ fn values_row(
     suffix: &str,
 ) -> bool {
     let mut changed = false;
-    ui.label(egui::RichText::new(title).size(10.0).color(MUTED));
+    ui.label(egui::RichText::new(title).size(10.5).color(MUTED));
     ui.horizontal(|ui| {
         for (i, v) in vals.into_iter().enumerate() {
             ui.label(
@@ -5285,7 +5312,7 @@ fn transport_button(ui: &mut egui::Ui, icon: icons::Icon) -> bool {
     let hovered = resp.hovered();
     ui.painter().rect_filled(
         rect,
-        egui::Rounding::same(7.0),
+        egui::Rounding::same(8.0),
         if hovered { HOVER } else { PILL },
     );
     icons::paint(ui.painter(), rect, icon, if hovered { TEXT } else { MUTED });
@@ -5301,9 +5328,23 @@ fn transport_pill(ui: &mut egui::Ui, label: &str, on: bool, hint: &str) -> bool 
         MUTED
     }))
     .fill(if on { ACCENT_BG } else { PILL })
-    .rounding(egui::Rounding::same(7.0))
+    .rounding(egui::Rounding::same(8.0))
     .min_size(egui::vec2(36.0, 22.0));
     ui.add(btn).on_hover_text(hint).clicked()
+}
+
+/// "piece" or "pieces", so the sentences read like English either way.
+fn piece_word(n: usize) -> &'static str {
+    if n == 1 {
+        "piece"
+    } else {
+        "pieces"
+    }
+}
+
+/// A short bold lead-in for one help paragraph.
+fn help_section(ui: &mut egui::Ui, title: &str) {
+    ui.label(egui::RichText::new(title).size(11.5).color(TEXT).strong());
 }
 
 /// `0.5×`, `1×` — a whole multiplier without a trailing `.0`.
@@ -5425,7 +5466,7 @@ fn icon_button_inner(ui: &mut egui::Ui, button: StripButton<'_>, size: egui::Vec
     };
     if bg != egui::Color32::TRANSPARENT {
         ui.painter()
-            .rect_filled(rect.shrink(1.5), egui::Rounding::same(7.0), bg);
+            .rect_filled(rect.shrink(1.5), egui::Rounding::same(8.0), bg);
     }
     let ink = colour.unwrap_or(if !enabled {
         MUTED.linear_multiply(0.45)
@@ -5521,7 +5562,7 @@ fn card(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
 
 fn small_label(ui: &mut egui::Ui, text: &str) {
     ui.add_space(4.0);
-    ui.label(egui::RichText::new(text).size(11.0).color(MUTED));
+    ui.label(egui::RichText::new(text).size(11.5).color(MUTED));
 }
 
 fn pill_button(ui: &mut egui::Ui, label: &str, selected: bool, size: egui::Vec2) -> bool {
@@ -5531,7 +5572,7 @@ fn pill_button(ui: &mut egui::Ui, label: &str, selected: bool, size: egui::Vec2)
         MUTED
     }))
     .fill(if selected { ACCENT_BG } else { PILL })
-    .rounding(egui::Rounding::same(9.0))
+    .rounding(egui::Rounding::same(8.0))
     .min_size(size);
     ui.add(btn).clicked()
 }
@@ -5544,7 +5585,7 @@ fn accent_button(ui: &mut egui::Ui, label: &str, width: f32) -> bool {
                 .color(egui::Color32::WHITE),
         )
         .fill(ACCENT)
-        .rounding(egui::Rounding::same(9.0))
+        .rounding(egui::Rounding::same(8.0))
         .min_size(egui::vec2(width.max(60.0), 32.0)),
     )
     .clicked()
@@ -5563,9 +5604,9 @@ fn step_button(ui: &mut egui::Ui, selected: bool, step: Tab) -> bool {
     {
         let p = ui.painter();
         if selected {
-            p.rect_filled(rect, egui::Rounding::same(9.0), ACCENT_BG);
+            p.rect_filled(rect, egui::Rounding::same(8.0), ACCENT_BG);
         } else if resp.hovered() {
-            p.rect_filled(rect, egui::Rounding::same(9.0), HOVER);
+            p.rect_filled(rect, egui::Rounding::same(8.0), HOVER);
         }
         let colour = if selected {
             egui::Color32::WHITE
@@ -5629,7 +5670,7 @@ fn lens_pill(label: &str, on: bool) -> egui::Button<'static> {
         } else {
             egui::Color32::from_black_alpha(120)
         })
-        .rounding(egui::Rounding::same(7.0))
+        .rounding(egui::Rounding::same(8.0))
         .stroke(egui::Stroke::NONE)
 }
 
@@ -5639,7 +5680,7 @@ fn badge(painter: &egui::Painter, at: egui::Pos2, text: &str) {
     let rect = egui::Rect::from_min_size(at, galley.size() + pad * 2.0);
     painter.rect_filled(
         rect,
-        egui::Rounding::same(7.0),
+        egui::Rounding::same(8.0),
         egui::Color32::from_black_alpha(120),
     );
     painter.galley(rect.min + pad, galley, MUTED);

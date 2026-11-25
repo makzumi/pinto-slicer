@@ -4,6 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- **One type scale and one pill shape for the whole window.** The panels had grown five near-duplicate text sizes (11.0 and 11.5, 12.0 and 12.5, 13.0 and 13.5) and three pill roundings (7, 8, 9). Titles sit at 10.5, notes at 11.5, body text and pills at 12.5, primary buttons at 13.5, and every pill is rounded 8.
+- **The help text is no longer a wall.** The How-to window's single run-on paragraph is split into short titled sections (In the view, Keyboard, The rest), and the phrase "the house under the orientation cube" now says the home button.
+- **Sentences count properly.** "3 piece(s) mirrored" style statuses now read "3 pieces mirrored", with a real singular for one. The export tab no longer tells you to open HALOT-X1 files with UVtools — it cannot read them yet; the printer can.
+
 ## [0.1.19] - 2026-11-25
 
 ### Fixed
