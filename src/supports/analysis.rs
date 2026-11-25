@@ -439,12 +439,13 @@ fn add_island_contacts(
     out: &mut Result,
     supports: &mut Vec<usize>,
 ) {
-    // Prusa's SampleConfigFactory derives island spacing from the contact
-    // head area. Keep those relationships, scaled by the UI's tip distance.
-    let head_area = std::f32::consts::PI * (cfg.tip.upper_diameter * 0.5).powi(2);
-    let one_support_length = head_area * 2.9 + 1.3;
-    let inner = (one_support_length * 3.9 * density_scale(cfg)).clamp(2.0, 24.0);
-    let outline = one_support_length * 3.9 * 0.75 * density_scale(cfg);
+    // HALOT Box samples islands on the same tip grid as everything else:
+    // the interior at the tip spacing and the rim three quarters of it
+    // (Prusa's rim factor), so a floating shelf grows a ring of heads that
+    // route into shared columns and cross-brace into one tree instead of a
+    // single lonely column.
+    let inner = cfg.touch_tip_distance.clamp(2.0, 24.0);
+    let outline = inner * 0.75;
 
     let interior = select_cells(component, grid, inner, false);
     let rim = select_cells(component, grid, outline, true);

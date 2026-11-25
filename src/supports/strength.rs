@@ -15,6 +15,12 @@ const CASCADE_NEIGHBORS: usize = 4;
 /// Height, which keeps the lattice out of the base's chamfer and the film's
 /// first peel.
 const CROSS_START_HEIGHT: f32 = 3.0;
+/// Double crosses only appear between columns this far apart. Close pairs
+/// get a plain zig-zag; giving every pair both diagonals is what made the
+/// lattice read as a wall of overlapping sticks.
+const CROSS_PAIR_DISTANCE: f32 = 6.0;
+/// How much daylight a brace needs from anything it is not attached to.
+const BRACE_CLEARANCE: f32 = 0.2;
 
 pub fn strengthen(pieces: &mut Pieces, cfg: &SupportConfig, tree: &Bvh) {
     // Feet must remain at least as wide as the validated pillar above them.
@@ -49,7 +55,14 @@ pub fn strengthen(pieces: &mut Pieces, cfg: &SupportConfig, tree: &Bvh) {
         if links[i] >= CASCADE_NEIGHBORS || links[j] >= CASCADE_NEIGHBORS {
             continue;
         }
-        let added = interconnect(&pieces.trunks[i], &pieces.trunks[j], cfg, tree, &mut braces);
+        let added = interconnect(
+            &pieces.trunks[i],
+            &pieces.trunks[j],
+            &pieces.trunks,
+            cfg,
+            tree,
+            &mut braces,
+        );
         if added && links[i] < CASCADE_NEIGHBORS && links[j] < CASCADE_NEIGHBORS {
             links[i] += 1;
             links[j] += 1;
@@ -64,6 +77,7 @@ pub fn strengthen(pieces: &mut Pieces, cfg: &SupportConfig, tree: &Bvh) {
 fn interconnect(
     a: &Trunk,
     b: &Trunk,
+    trunks: &[Trunk],
     cfg: &SupportConfig,
     tree: &Bvh,
     braces: &mut Vec<Brace>,
@@ -90,7 +104,10 @@ fn interconnect(
         let (from_trunk, to_trunk) = if swap { (b, a) } else { (a, b) };
         let from = Vec3::new(from_trunk.bottom.x, from_trunk.bottom.y, z);
         let to = Vec3::new(to_trunk.bottom.x, to_trunk.bottom.y, z - step);
-        if tree.segment_clear(from, to, radius) {
+        if tree.segment_clear(from, to, radius)
+            && clear_of_columns(from, to, radius, a, b, trunks)
+            && clear_of_braces(from, to, radius, braces, None)
+        {
             braces.push(Brace {
                 id: 0,
                 a: from,
@@ -102,11 +119,18 @@ fn interconnect(
         }
 
         // Prusa's dynamic mode adds the opposite diagonal for columns whose
-        // bases are farther apart than one base diameter.
-        if distance > cfg.foot_diameter {
+        // bases are farther apart than one base diameter. Only the wide gaps
+        // get the double cross; a close pair zig-zags on its own.
+        if distance > CROSS_PAIR_DISTANCE {
             let reverse_from = Vec3::new(to_trunk.bottom.x, to_trunk.bottom.y, z);
             let reverse_to = Vec3::new(from_trunk.bottom.x, from_trunk.bottom.y, z - step);
-            if tree.segment_clear(reverse_from, reverse_to, radius) {
+            // The two legs of a cross meet by design, so the forward leg just
+            // pushed is excused; anything else still needs its daylight.
+            let excuse = braces.last().map(|_| braces.len() - 1);
+            if tree.segment_clear(reverse_from, reverse_to, radius)
+                && clear_of_columns(reverse_from, reverse_to, radius, a, b, trunks)
+                && clear_of_braces(reverse_from, reverse_to, radius, braces, excuse)
+            {
                 braces.push(Brace {
                     id: 0,
                     a: reverse_from,
@@ -121,6 +145,84 @@ fn interconnect(
         z -= step;
     }
     added
+}
+
+/// A brace may touch the two columns it joins and nothing else. Anything
+/// closer than the combined radii plus a hair of daylight would read as a
+/// stick rammed through a column — HALOT Box's lattice never does that.
+fn clear_of_columns(
+    from: Vec3,
+    to: Vec3,
+    radius: f32,
+    a: &Trunk,
+    b: &Trunk,
+    trunks: &[Trunk],
+) -> bool {
+    for trunk in trunks {
+        if trunk.model_id != a.model_id || trunk.bottom == a.bottom || trunk.bottom == b.bottom {
+            continue;
+        }
+        let needed = radius + trunk.diameter * 0.5 + BRACE_CLEARANCE;
+        if segment_distance(from, to, trunk.bottom, trunk.top) < needed {
+            return false;
+        }
+    }
+    true
+}
+
+/// Nor may a brace stack on one that is already there. `excused` is the
+/// index of the other leg of the same cross, which is allowed to meet.
+fn clear_of_braces(
+    from: Vec3,
+    to: Vec3,
+    radius: f32,
+    braces: &[Brace],
+    excused: Option<usize>,
+) -> bool {
+    for (index, brace) in braces.iter().enumerate() {
+        if Some(index) == excused {
+            continue;
+        }
+        let needed = radius + brace.diameter * 0.5 + BRACE_CLEARANCE;
+        if segment_distance(from, to, brace.a, brace.b) < needed {
+            return false;
+        }
+    }
+    true
+}
+
+/// Closest distance between two line segments, both ends clamped
+/// (Ericson, Real-Time Collision Detection, §5.1.9).
+fn segment_distance(a0: Vec3, a1: Vec3, b0: Vec3, b1: Vec3) -> f32 {
+    let d1 = a1 - a0;
+    let d2 = b1 - b0;
+    let r = a0 - b0;
+    let a = d1.dot(d1);
+    let e = d2.dot(d2);
+    let f = d2.dot(r);
+    if a <= 1e-9 && e <= 1e-9 {
+        return r.length();
+    }
+    if a <= 1e-9 {
+        let t = (f / e).clamp(0.0, 1.0);
+        return (a0 - (b0 + d2 * t)).length();
+    }
+    let c = d1.dot(r);
+    if e <= 1e-9 {
+        let s = (-c / a).clamp(0.0, 1.0);
+        return ((a0 + d1 * s) - b0).length();
+    }
+    let b = d1.dot(d2);
+    let denom = a * e - b * b;
+    let s = if denom.abs() > 1e-9 {
+        ((b * f - c * e) / denom).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let t = ((b * s + f) / e).clamp(0.0, 1.0);
+    let pa = a0 + d1 * s;
+    let pb = b0 + d2 * t;
+    (pa - pb).length()
 }
 
 fn xy_distance(a: Vec3, b: Vec3) -> f32 {

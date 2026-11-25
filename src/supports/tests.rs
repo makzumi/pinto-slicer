@@ -1201,3 +1201,137 @@ fn strut_junctions_carry_balls() {
         "the balls add geometry at the joints"
     );
 }
+
+/// A floating cap over a stem: the underside ring is an island that must grow
+/// a ring of heads dense enough to share columns, the way HALOT Box's
+/// islands do, instead of one lonely column under the middle.
+#[test]
+fn a_floating_cap_grows_a_ring_of_heads_that_share_columns() {
+    let meshes = [block((4.0, 4.0, 11.0), 6.0), block((16.0, 16.0, 4.0), 15.0)];
+    let cfg = SupportConfig::default();
+    let model = run(&meshes, &cfg);
+
+    let cap: Vec<_> = model
+        .tips
+        .iter()
+        .filter(|t| t.island && (t.pos.z - 15.0).abs() < 0.5)
+        .collect();
+    assert!(
+        cap.len() >= 12,
+        "the cap ring needs a real handful of heads, got {}",
+        cap.len()
+    );
+    assert!(
+        model.branches.len() >= 5,
+        "heads this close must share columns, not each stand on one"
+    );
+    assert!(
+        model.trunks.len() < cap.len(),
+        "sharing columns is the point: {} trunks for {} heads",
+        model.trunks.len(),
+        cap.len()
+    );
+    assert!(
+        model.trunks.iter().any(|t| t.tip_ids.len() >= 2),
+        "at least one column must carry two heads"
+    );
+}
+
+/// Close columns zig-zag on their own; only wide gaps earn the double cross.
+#[test]
+fn close_columns_get_a_plain_zig_zag_wide_ones_get_the_cross() {
+    let trunk = |x: f32| Trunk {
+        id: 0,
+        bottom: Vec3::new(x, 0.0, 0.0),
+        top: Vec3::new(x, 0.0, 30.0),
+        diameter: 1.6,
+        tip_ids: vec![0],
+        model_id: 0,
+    };
+    let cfg = SupportConfig::default();
+    let empty = bvh::Bvh::from_meshes(&[]);
+    let pieces = |a: f32, b: f32| route::Pieces {
+        tips: Vec::new(),
+        anchors: Vec::new(),
+        branches: Vec::new(),
+        trunks: vec![trunk(a), trunk(b)],
+        feet: Vec::new(),
+        braces: Vec::new(),
+    };
+
+    let mut near = pieces(-2.0, 2.0);
+    strength::strengthen(&mut near, &cfg, &empty);
+    assert!(!near.braces.is_empty(), "close columns still get braced");
+    let mut spans: Vec<(f32, f32)> = near
+        .braces
+        .iter()
+        .map(|b| {
+            let (lo, hi) = if b.a.z < b.b.z {
+                (b.a.z, b.b.z)
+            } else {
+                (b.b.z, b.a.z)
+            };
+            (lo, hi)
+        })
+        .collect();
+    spans.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.total_cmp(&y.1)));
+    assert!(
+        spans.windows(2).all(|w| w[0] != w[1]),
+        "a close pair zig-zags; stacking both diagonals on every level is the \
+         wall of sticks nobody asked for"
+    );
+
+    let mut far = pieces(-5.0, 5.0);
+    strength::strengthen(&mut far, &cfg, &empty);
+    assert!(!far.braces.is_empty(), "wide columns still get braced");
+    let mut spans: Vec<(f32, f32)> = far
+        .braces
+        .iter()
+        .map(|b| {
+            let (lo, hi) = if b.a.z < b.b.z {
+                (b.a.z, b.b.z)
+            } else {
+                (b.b.z, b.a.z)
+            };
+            (lo, hi)
+        })
+        .collect();
+    spans.sort_by(|x, y| x.0.total_cmp(&y.0).then(x.1.total_cmp(&y.1)));
+    assert!(
+        spans.windows(2).any(|w| w[0] == w[1]),
+        "a wide gap earns the double cross"
+    );
+}
+
+/// The lattice must route around a column in its way, never through it.
+#[test]
+fn a_brace_never_passes_through_a_third_column() {
+    let trunk = |x: f32| Trunk {
+        id: 0,
+        bottom: Vec3::new(x, 0.0, 0.0),
+        top: Vec3::new(x, 0.0, 30.0),
+        diameter: 1.6,
+        tip_ids: vec![0],
+        model_id: 0,
+    };
+    let cfg = SupportConfig::default();
+    let empty = bvh::Bvh::from_meshes(&[]);
+    let mut pieces = route::Pieces {
+        tips: Vec::new(),
+        anchors: Vec::new(),
+        branches: Vec::new(),
+        trunks: vec![trunk(-4.0), trunk(0.0), trunk(4.0)],
+        feet: Vec::new(),
+        braces: Vec::new(),
+    };
+    strength::strengthen(&mut pieces, &cfg, &empty);
+    assert!(!pieces.braces.is_empty(), "the neighbours still brace");
+    for brace in &pieces.braces {
+        let span = (brace.a.x - brace.b.x).abs();
+        assert!(
+            span < 7.0,
+            "a brace spanning {span} mm would run straight through the \
+             middle column"
+        );
+    }
+}
