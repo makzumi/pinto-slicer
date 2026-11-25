@@ -24,10 +24,17 @@ const LAYER_DEF_EX_SIZE: usize = 44;
 const LAYER_RECORD_SIZE: usize = 120;
 const LAYER_RECORD_TAIL: [u8; 80] = {
     let mut tail = [0u8; 80];
+    // HALOT Box sets 6 in the word at +66 and 0x180 in the word at +78 of
+    // every record, bottom layers and normal ones alike. Nothing documents
+    // them; matching the only writer the printer trusts is cheaper than
+    // guessing what they mean.
+    tail[26] = 0x06;
     tail[30] = 0x70;
     tail[33] = 0x07;
     tail[34] = 0x80;
     tail[37] = 0x38;
+    tail[38] = 0x80;
+    tail[39] = 0x01;
     tail
 };
 /// The printer expects the model size as three floats right after the header,
@@ -391,7 +398,11 @@ fn write_v4_header(
     le32(file, SLICER_INFO_SIZE as u32)
 }
 
-fn write_v4_params(file: &mut std::fs::File, settings: &PrintSettings) -> std::io::Result<()> {
+fn write_v4_params(
+    file: &mut std::fs::File,
+    settings: &PrintSettings,
+    x1: bool,
+) -> std::io::Result<()> {
     let lift = settings.rising_height.max(0.0);
     let speed = settings.motor_speed.max(1.0);
     for v in [
@@ -411,8 +422,20 @@ fn write_v4_params(file: &mut std::fs::File, settings: &PrintSettings) -> std::i
     le32(file, settings.bottom_layers)?;
     lef(file, settings.exposure)?;
     lef(file, settings.bottom_exposure)?;
-    for _ in 0..4 {
-        le32(file, 0)?;
+    if x1 {
+        // The four undocumented slots. HALOT Box writes 5, 120, 6 and 1 for
+        // this machine and its files are the ones the printer accepts; one
+        // of those numbers could plausibly gate the light or the motion on
+        // normal layers, and zeros there are a real difference between our
+        // file and a print that works. Copy them.
+        lef(file, 5.0)?;
+        lef(file, 120.0)?;
+        lef(file, 6.0)?;
+        le32(file, 1)?;
+    } else {
+        for _ in 0..4 {
+            le32(file, 0)?;
+        }
     }
     Ok(())
 }
@@ -437,15 +460,35 @@ fn write_v4_slicer(
         .unwrap_or(0);
     le32(file, minutes as u32)?;
     le32(file, u32::from(!x1))?;
-    le32(file, 0x0106_0300)?;
-    for v in [
-        0.0, // rest time after retract (light-off is stored per layer)
-        0.0, // rest time before lift
-        settings.exposure,
-        settings.bottom_exposure,
-        0.0, // rest time after lift
-    ] {
-        lef(file, v)?;
+    // Creality's own slicer leaves the version at zero; UVtools guesses
+    // 0x01060300 and never verified a write against the machine.
+    le32(file, if x1 { 0 } else { 0x0106_0300 })?;
+    if x1 {
+        // HALOT Box puts zero in the slot UVtools calls ExposureTime, the
+        // real bottom exposure in the slot UVtools calls BottomExposureTime,
+        // and its real normal exposure in the last slot. The layer records
+        // and the print parameters carry the exposure too, but those agree
+        // with a working print, so if the firmware reads it from anywhere
+        // else it has to be here. Mirror the placement.
+        for v in [
+            0.0, // rest time after retract (light-off is stored per layer)
+            0.0, // rest time before lift
+            0.0, // the slot UVtools calls ExposureTime: HALOT Box zeroes it
+            settings.bottom_exposure,
+            settings.exposure,
+        ] {
+            lef(file, v)?;
+        }
+    } else {
+        for v in [
+            0.0, // rest time after retract (light-off is stored per layer)
+            0.0, // rest time before lift
+            settings.exposure,
+            settings.bottom_exposure,
+            0.0, // rest time after lift
+        ] {
+            lef(file, v)?;
+        }
     }
     le32(file, 0)?; // transition layers
     le32(file, 0)?;
@@ -488,7 +531,7 @@ pub fn write_v4(
     }
     write_v4_preview(&mut file, PREVIEW_SMALL, &small_encoded).map_err(|e| formats::io(path, e))?;
     write_v4_preview(&mut file, PREVIEW_LARGE, &large_encoded).map_err(|e| formats::io(path, e))?;
-    write_v4_params(&mut file, settings).map_err(|e| formats::io(path, e))?;
+    write_v4_params(&mut file, settings, x1).map_err(|e| formats::io(path, e))?;
     write_v4_slicer(&mut file, settings, x1).map_err(|e| formats::io(path, e))?;
     file.write_all(&vec![0; total * LAYER_RECORD_SIZE])
         .map_err(|e| formats::io(path, e))?;
@@ -902,6 +945,40 @@ mod tests {
                     .unwrap(),
             ) as usize;
         assert_eq!(bytes.len() - 4 - data_end, count * LAYER_DEF_EX_SIZE);
+        // The print parameters carry HALOT Box's four undocumented slots and
+        // the slicer block mirrors where HALOT Box puts the exposures.
+        let params_at = table - PRINT_PARAMETERS_SIZE - SLICER_INFO_SIZE;
+        let paddings: Vec<u8> = [5.0f32, 120.0, 6.0]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .chain(1u32.to_le_bytes())
+            .collect();
+        assert_eq!(
+            &bytes[params_at + 52..params_at + 68],
+            &paddings[..],
+            "HALOT Box's parameter slots are copied"
+        );
+        let slicer_at = table - SLICER_INFO_SIZE;
+        assert_eq!(
+            u32::from_le_bytes(bytes[slicer_at + 40..slicer_at + 44].try_into().unwrap()),
+            0,
+            "the software version stays at zero"
+        );
+        assert_eq!(
+            f32::from_le_bytes(bytes[slicer_at + 52..slicer_at + 56].try_into().unwrap()),
+            0.0,
+            "the slot UVtools calls ExposureTime stays zero"
+        );
+        assert_eq!(
+            f32::from_le_bytes(bytes[slicer_at + 56..slicer_at + 60].try_into().unwrap()),
+            PrintSettings::default().bottom_exposure,
+            "the bottom exposure sits where HALOT Box puts it"
+        );
+        assert_eq!(
+            f32::from_le_bytes(bytes[slicer_at + 60..slicer_at + 64].try_into().unwrap()),
+            PrintSettings::default().exposure,
+            "the normal exposure sits in the last slot, like HALOT Box"
+        );
         if std::env::var_os("KEEP_FORMAT_SAMPLES").is_none() {
             let _ = std::fs::remove_file(path);
         }

@@ -4,6 +4,10 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Fixed
+
+- **Normal layers get their exposure again.** The first test print cured the bottom film and then printed almost nothing, and the file said why: three slots in the print parameters that HALOT Box fills with 5, 120, 6 and 1 were zero in ours, the slicer block put the exposures where UVtools guessed instead of where Creality's own writer puts them, and every layer record missed two fixed words that HALOT Box always writes. The writer now copies all of them from the files the printer accepts, so the light comes on for every layer, not just the first few.
+
 ## [0.1.17] - 2026-11-24
 
 ### Fixed
