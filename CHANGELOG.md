@@ -4,6 +4,15 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Added
+
+- **Copy as many pieces as asked for** from the left strip: **Copy…** asks for a number and puts that many copies of every picked piece beside their originals, wrapping into a second row when the plate runs out. **Ctrl+D** still makes one copy without asking.
+- **Mirror beside the original** from the left strip: **Mirror** puts one mirrored copy of each picked piece next to it, so a left-hand part leaves a right-hand one. The flip is a placement, not new geometry, so it can be undone like any other move.
+
+### Fixed
+
+- **Quit without saving** closes the window. Answering the question closed it only to have the app ask again on the next frame and cancel its own close, so the window could not be closed at all once there were unwritten changes.
+
 ## [0.1.15] - 2026-11-24
 
 ### Added

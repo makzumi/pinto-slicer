@@ -614,6 +614,12 @@ pub struct App {
     quit_after_save: bool,
     /// A save landed and the window should close this frame.
     quit_now: bool,
+    /// A close this app asked for is on its way, so the next close request has
+    /// to be let through rather than answered with the quit question again.
+    closing: bool,
+    /// The copy question is up, and how many copies it is set to make.
+    copy_prompt: bool,
+    copies: usize,
     /// Whether closing the window asks about unwritten changes. A window that
     /// exists to be photographed closes without a word.
     prompt_on_close: bool,
@@ -732,6 +738,9 @@ impl App {
             quit_prompt: false,
             quit_after_save: false,
             quit_now: false,
+            closing: false,
+            copy_prompt: false,
+            copies: 1,
             prompt_on_close: !wait_for_runs,
             recent: startup_recent(),
             project_path: None,
@@ -1112,8 +1121,25 @@ impl App {
         };
     }
 
-    /// Put copies of the picked pieces beside them, with room for their supports.
+    /// Put one copy of each picked piece beside it, with room for its supports.
     fn duplicate_selected(&mut self) {
+        self.copy_selected(1, false);
+    }
+
+    /// The same, as many times as the copy question asks for.
+    fn duplicate_selected_many(&mut self, copies: usize) {
+        self.copy_selected(copies, false);
+    }
+
+    /// One copy of each picked piece, turned inside out: a left-hand part
+    /// leaves a right-hand one beside it.
+    fn mirror_copy_selected(&mut self) {
+        self.copy_selected(1, true);
+    }
+
+    /// Copies of the picked pieces, laid out beside their originals: to the
+    /// right, wrapping into a new row when the plate runs out.
+    fn copy_selected(&mut self, copies: usize, mirrored: bool) {
         self.cancel_gesture();
         let picked: Vec<usize> = self
             .selection
@@ -1125,31 +1151,52 @@ impl App {
         if picked.is_empty() {
             return;
         }
+        let copies = copies.max(1);
         let build = self.printers[self.printer_idx].build;
-        let mut copies = Vec::new();
+        let gap = 6.0;
+        let mut placed = Vec::new();
         for idx in picked {
             let entry = &self.models[idx];
             let (min, max) = entry.bounds();
             let size = max - min;
-            let gap = 6.0;
             let origin = entry.transform.pos;
-            let mut pos = origin + Vec3::new(size.x + gap, 0.0, 0.0);
-            // step back and down a row when the copy would leave the plate
-            if pos.x + size.x * 0.5 > build[0] * 0.5 {
-                pos = origin + Vec3::new(0.0, size.y + gap, 0.0);
+            // How many copies fit between this piece and the right-hand edge
+            // of the plate; the rest wrap into rows behind it.
+            let step_x = size.x + gap;
+            let room = (build[0] * 0.5 - max.x).max(0.0);
+            let per_row = ((room / step_x).floor() as usize + 1).max(1);
+            for k in 1..=copies {
+                let (col, row) = (k % per_row, k / per_row);
+                let mut copy = entry.clone();
+                if mirrored {
+                    // Flip before placing: a mirror about the piece's own
+                    // centre leaves it where it was, then the copy is moved.
+                    let centre = layout::bounds_centre(copy.mesh.bounds());
+                    copy.transform.mirror_about(0, centre);
+                }
+                copy.transform.pos =
+                    origin + Vec3::new(step_x * col as f32, (size.y + gap) * row as f32, 0.0);
+                let name = if mirrored {
+                    format!("{} mirrored", copy.mesh.name)
+                } else if copies == 1 {
+                    format!("{} copy", copy.mesh.name)
+                } else {
+                    format!("{} copy {}", copy.mesh.name, k)
+                };
+                Arc::make_mut(&mut copy.mesh).name = name;
+                placed.push(copy);
             }
-            let mut copy = entry.clone();
-            copy.transform.pos = pos;
-            let name = format!("{} copy", copy.mesh.name);
-            Arc::make_mut(&mut copy.mesh).name = name;
-            copies.push(copy);
         }
-        let count = copies.len();
+        let count = placed.len();
         let first = self.models.len();
-        self.models.extend(copies);
+        self.models.extend(placed);
         self.selection.only(first..first + count);
         self.finish_model_edit(&(first..first + count).collect::<Vec<_>>(), true);
-        self.status = format!("Copied {count} piece(s).");
+        self.status = if mirrored {
+            format!("Mirrored {count} piece(s) beside the original.")
+        } else {
+            format!("Copied {count} piece(s).")
+        };
     }
 
     /// Flip the picked pieces across one of their own axes, about each piece's
@@ -1454,8 +1501,22 @@ impl App {
         if self.prompt_on_close && self.unsaved_changes() {
             self.quit_prompt = true;
         } else {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.close_window(ctx);
         }
+    }
+
+    /// Close the window for good. `Close` arrives back as a close request on
+    /// the next frame, so saying we asked for it is what keeps the quit
+    /// question from catching our own close and refusing to quit.
+    fn close_window(&mut self, ctx: &egui::Context) {
+        self.closing = true;
+        self.quit_prompt = false;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// Whether a close request should be answered with the quit question.
+    fn asks_about_closing(&self) -> bool {
+        self.prompt_on_close && !self.closing && self.unsaved_changes()
     }
 
     /// Hold the window open while the quit question is unanswered.
@@ -1463,7 +1524,7 @@ impl App {
         if !ctx.input(|input| input.viewport().close_requested()) {
             return;
         }
-        if !self.prompt_on_close || !self.unsaved_changes() {
+        if !self.asks_about_closing() {
             return;
         }
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1515,8 +1576,56 @@ impl App {
             self.quit_after_save = true;
             self.save_project();
         } else if discard {
-            self.quit_prompt = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.close_window(ctx);
+        }
+    }
+
+    /// How many copies to make. It opens from the strip rather than the menu so
+    /// the plate stays in view while the number is typed.
+    fn copy_window(&mut self, ctx: &egui::Context) {
+        if !self.copy_prompt {
+            return;
+        }
+        let picked = self.selection.len();
+        let (mut make, mut cancel) = (false, false);
+        egui::Window::new("Copy the picked pieces")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_max_width(300.0);
+                ui.label(egui::RichText::new(format!("{picked} piece(s) picked.")).color(MUTED));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Copies").color(TEXT));
+                    ui.add(
+                        egui::DragValue::new(&mut self.copies)
+                            .range(1..=50)
+                            .speed(0.2),
+                    );
+                });
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Copy").clicked() {
+                        make = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if ctx.input(|input| input.key_pressed(egui::Key::Enter)) {
+            make = true;
+        }
+        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if make {
+            self.copy_prompt = false;
+            let copies = self.copies.max(1);
+            self.duplicate_selected_many(copies);
+        } else if cancel {
+            self.copy_prompt = false;
         }
     }
 
@@ -2750,6 +2859,41 @@ impl App {
                     ) {
                         self.select_tool(tool);
                     }
+                }
+                // What can be done to the picked pieces: the strip keeps
+                // these next to the tools, so a copy or a mirror does not
+                // mean opening a panel first.
+                ui.add_space(8.0);
+                let any_picked = !self.selection.is_empty();
+                let (copy_tip, mirror_tip) = if any_picked {
+                    (
+                        "Copy the picked pieces, as many as asked for",
+                        "Put a mirrored copy of each picked piece beside it",
+                    )
+                } else {
+                    ("Pick a piece first", "Pick a piece first")
+                };
+                if icon_button_when(
+                    ui,
+                    any_picked,
+                    icons::DUPLICATE,
+                    "Copy…",
+                    copy_tip,
+                    self.copy_prompt,
+                    size,
+                ) {
+                    self.copy_prompt = true;
+                }
+                if icon_button_when(
+                    ui,
+                    any_picked,
+                    icons::MIRROR,
+                    "Mirror",
+                    mirror_tip,
+                    false,
+                    size,
+                ) {
+                    self.mirror_copy_selected();
                 }
                 // the two view modes sit at the foot of the strip
                 let gap = ui.spacing().item_spacing.y;
@@ -4540,7 +4684,7 @@ impl App {
     /// The keys written on the tooltips, all read from the same place as the
     /// tooltips themselves so the two cannot say different things.
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.wants_keyboard_input() || self.quit_prompt {
+        if ctx.wants_keyboard_input() || self.quit_prompt || self.copy_prompt {
             return;
         }
         let pressed = ctx.input(|i| Pressed {
@@ -4613,6 +4757,7 @@ impl App {
     fn windows(&mut self, ctx: &egui::Context) {
         self.values_window(ctx);
         self.alignment_window(ctx);
+        self.copy_window(ctx);
         self.help_window(ctx);
     }
 
@@ -4923,8 +5068,9 @@ impl App {
                          with work that has not been saved asks first: the File menu also \
                          lists the last ten files opened, under Open recent. Under the \
                          viewport's caption, Persp and Ortho swap the lens, and the house \
-                         under the orientation cube goes back to the three-quarter view. A turn ring can be made to land on \
-                         round numbers from the Snap box in the numbers window.
+                         under the orientation cube goes back to the three-quarter view. The left strip copies \
+                         what is picked as many times as asked for, and can put a mirrored copy beside it. A \
+                         turn ring can be made to land on round numbers from the Snap box in the numbers window.
 
                          The Align & space dialog can be dragged by its title bar. Projects \
                          embed their meshes and settings in a single .rslice file; supports \
@@ -4974,7 +5120,7 @@ impl eframe::App for App {
         self.poll_project();
         if self.quit_now {
             self.quit_now = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            self.close_window(ctx);
         }
         self.poll_picker(ctx);
         self.poll_dropped_files(ctx);
@@ -5112,7 +5258,18 @@ fn icon_button(
     selected: bool,
     size: egui::Vec2,
 ) -> bool {
-    icon_button_inner(ui, icon, label, tip, selected, None, size)
+    icon_button_inner(
+        ui,
+        StripButton {
+            icon,
+            label,
+            tip,
+            selected,
+            colour: None,
+            enabled: true,
+        },
+        size,
+    )
 }
 
 /// The same button, with the glyph in a given colour: used for the mirror
@@ -5125,20 +5282,71 @@ fn icon_button_col(
     colour: egui::Color32,
     size: egui::Vec2,
 ) -> bool {
-    icon_button_inner(ui, icon, label, tip, false, Some(colour), size)
+    icon_button_inner(
+        ui,
+        StripButton {
+            icon,
+            label,
+            tip,
+            selected: false,
+            colour: Some(colour),
+            enabled: true,
+        },
+        size,
+    )
 }
 
-fn icon_button_inner(
+/// The same button, dimmed and unclickable when there is nothing to act on.
+fn icon_button_when(
     ui: &mut egui::Ui,
+    enabled: bool,
     icon: icons::Icon,
     label: &str,
     tip: &str,
     selected: bool,
-    colour: Option<egui::Color32>,
     size: egui::Vec2,
 ) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-    let hovered = resp.hovered();
+    icon_button_inner(
+        ui,
+        StripButton {
+            icon,
+            label,
+            tip,
+            selected,
+            colour: None,
+            enabled,
+        },
+        size,
+    )
+}
+
+/// What one button of the left strip says and how it looks, so the drawing
+/// itself takes the size and nothing else.
+struct StripButton<'a> {
+    icon: icons::Icon,
+    label: &'a str,
+    tip: &'a str,
+    selected: bool,
+    colour: Option<egui::Color32>,
+    enabled: bool,
+}
+
+fn icon_button_inner(ui: &mut egui::Ui, button: StripButton<'_>, size: egui::Vec2) -> bool {
+    let StripButton {
+        icon,
+        label,
+        tip,
+        selected,
+        colour,
+        enabled,
+    } = button;
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(size, sense);
+    let hovered = enabled && resp.hovered();
     let bg = if selected {
         ACCENT_BG
     } else if hovered {
@@ -5150,7 +5358,9 @@ fn icon_button_inner(
         ui.painter()
             .rect_filled(rect.shrink(1.5), egui::Rounding::same(7.0), bg);
     }
-    let ink = colour.unwrap_or(if selected {
+    let ink = colour.unwrap_or(if !enabled {
+        MUTED.linear_multiply(0.45)
+    } else if selected {
         egui::Color32::WHITE
     } else if hovered {
         TEXT
@@ -5165,14 +5375,16 @@ fn icon_button_inner(
             egui::Align2::CENTER_BOTTOM,
             label,
             egui::FontId::proportional(9.5),
-            if selected {
+            if !enabled {
+                MUTED.linear_multiply(0.45)
+            } else if selected {
                 egui::Color32::WHITE
             } else {
                 MUTED
             },
         );
     }
-    resp.on_hover_text(tip).clicked()
+    resp.on_hover_text(tip).clicked() && enabled
 }
 
 /// One button of the step footer. Painted here rather than left to `egui` so
@@ -6212,7 +6424,87 @@ mod tests {
         // Quitting without saving is the same question answered differently.
         app.saved_serial = app.change_serial;
         assert!(!app.unsaved_changes());
+
+        // A close this app asked for comes back as a close request on the next
+        // frame. It must not be answered with the question that asked for it,
+        // or the window can never be closed at all.
+        app.record_change();
+        assert!(app.asks_about_closing(), "unwritten work is asked about");
+        let ctx = egui::Context::default();
+        app.close_window(&ctx);
+        assert!(app.closing);
+        assert!(!app.quit_prompt, "the question steps out of its own way");
+        assert!(
+            !app.asks_about_closing(),
+            "our own close must not be caught and cancelled"
+        );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn the_copy_question_makes_as_many_copies_as_asked_for() {
+        let mut app = app_with_a_piece();
+        make_room(&mut app);
+        app.selection = Selection::single(0);
+        let before = app.models.len();
+        app.copies = 4;
+        app.copy_prompt = false;
+        app.duplicate_selected_many(app.copies);
+        assert_eq!(app.models.len(), before + 4, "four copies of one piece");
+        assert_eq!(
+            app.selection.pieces(),
+            (before..before + 4).collect::<Vec<_>>(),
+            "the copies are what is picked afterwards"
+        );
+
+        // Each copy is a piece of its own, with a name that tells it apart.
+        let mut names: Vec<String> = app.models[before..]
+            .iter()
+            .map(|m| m.mesh.name.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 4, "every copy is named differently");
+
+        // And they are laid out apart, not stacked on one another.
+        for (i, a) in app.world.iter().enumerate().skip(before) {
+            let (a_min, a_max) = a.bounds();
+            for (j, b) in app.world.iter().enumerate().skip(i + 1) {
+                let (b_min, b_max) = b.bounds();
+                let apart = a_min.x > b_max.x
+                    || b_min.x > a_max.x
+                    || a_min.y > b_max.y
+                    || b_min.y > a_max.y;
+                assert!(apart, "copies {i} and {j} overlap");
+            }
+        }
+    }
+
+    #[test]
+    fn a_mirrored_copy_stands_beside_the_original_the_other_way_round() {
+        let mut app = app_with_a_piece();
+        make_room(&mut app);
+        app.selection = Selection::single(0);
+        let before = app.models.len();
+        let original = app.models[0].transform;
+        app.mirror_copy_selected();
+
+        assert_eq!(
+            app.models.len(),
+            before + 1,
+            "one copy, not a flip in place"
+        );
+        let copy = app.models[before].transform;
+        assert!(copy.mirror.x, "the copy is the mirrored one");
+        assert!(!original.mirror.x, "the original is left as it was");
+        assert!(
+            (copy.pos.x - original.pos.x).abs() > 1.0,
+            "the copy sits beside the original"
+        );
+        assert!(app.models[before].mesh.name.ends_with("mirrored"));
+        assert_eq!(app.selection.primary(), Some(before));
+        let (min, max) = app.world[before].bounds();
+        assert!(min.z >= -0.01 && max.z > min.z, "the copy is on the plate");
     }
 
     #[test]
