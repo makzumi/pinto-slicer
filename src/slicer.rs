@@ -271,6 +271,23 @@ pub fn fill_mask(
 /// its exact outlines — the pixel mask it replaces showed its own grid.
 /// Vertically identical spans are welded, so a flat wall costs one quad.
 pub fn cap_rects(layer: &Layer, min: [f32; 2], max: [f32; 2], pitch: f32) -> Vec<[f32; 4]> {
+    cap_walk(layer, min, max, pitch, true)
+}
+
+/// The same walk, but a span whose contour never closes is dropped instead
+/// of running to the end of the plate: a preview picture should show what
+/// the plate really holds, not a rasteriser's fallback.
+pub fn cap_rects_strict(layer: &Layer, min: [f32; 2], max: [f32; 2], pitch: f32) -> Vec<[f32; 4]> {
+    cap_walk(layer, min, max, pitch, false)
+}
+
+fn cap_walk(
+    layer: &Layer,
+    min: [f32; 2],
+    max: [f32; 2],
+    pitch: f32,
+    close_open: bool,
+) -> Vec<[f32; 4]> {
     let mut rects: Vec<[f32; 4]> = Vec::new();
     if layer.segs.is_empty() {
         return rects;
@@ -293,8 +310,12 @@ pub fn cap_rects(layer: &Layer, min: [f32; 2], max: [f32; 2], pitch: f32) -> Vec
     let mut next = 0usize;
     let mut active: Vec<usize> = Vec::new();
     let mut xs: Vec<(f32, i32)> = Vec::new();
-    let mut row = y_lo;
-    while row <= y_hi {
+    // Scanlines sample the middle of each band, never its edge: a vertex
+    // that sits exactly on an edge would look like a contour that never
+    // closes, and the span would run off to the end of the plate.
+    let half = pitch * 0.5;
+    let mut row = y_lo + half;
+    while row < y_hi {
         while next < order.len() && lo(&layer.segs[order[next]]) <= row {
             active.push(order[next]);
             next += 1;
@@ -327,17 +348,20 @@ pub fn cap_rects(layer: &Layer, min: [f32; 2], max: [f32; 2], pitch: f32) -> Vec
             } else if was && !now {
                 if let Some(x0) = span.take() {
                     if let Some((x0, x1)) = clamp_span(min, sx, x0, xs[k].0) {
-                        push_span(&mut rects, x0, x1, row, row + pitch);
+                        push_span(&mut rects, x0, x1, row - half, row + half);
                     }
                 }
             }
             k += 1;
         }
         // A contour left open past the bed edge behaves like the mask it
-        // replaces: the span runs to the end of the plate.
-        if let Some(x0) = span {
-            if let Some((x0, x1)) = clamp_span(min, sx, x0, min[0] + sx) {
-                push_span(&mut rects, x0, x1, row, row + pitch);
+        // replaces: the span runs to the end of the plate. Strict callers
+        // would rather lose the span than invent a bar across the plate.
+        if close_open {
+            if let Some(x0) = span {
+                if let Some((x0, x1)) = clamp_span(min, sx, x0, min[0] + sx) {
+                    push_span(&mut rects, x0, x1, row - half, row + pitch - half);
+                }
             }
         }
         row += pitch;
@@ -589,6 +613,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn cap_rects_survive_a_vertex_on_the_scanline() {
+        // A diamond whose lowest point sits exactly on a band edge: the
+        // crossing at the tip used to leave a span that never closed and
+        // ran off to the end of the plate.
+        let pts = [(2.0, 0.0), (4.0, 2.0), (2.0, 4.0), (0.0, 2.0)];
+        let mut segs = Vec::new();
+        for k in 0..4 {
+            let (a, b) = (pts[k], pts[(k + 1) % 4]);
+            segs.push(Seg {
+                a: [a.0, a.1],
+                b: [b.0, b.1],
+            });
+        }
+        let layer = Layer { z: 1.0, segs };
+        let rects = cap_rects(&layer, [0.0, 0.0], [10.0, 10.0], 1.0);
+        let area: f32 = rects.iter().map(|r| (r[2] - r[0]) * (r[3] - r[1])).sum();
+        assert!(
+            (area - 8.0).abs() < 1e-4,
+            "the diamond holds its 8 mm², was {area} over {rects:?}"
+        );
+        for r in &rects {
+            assert!(
+                r[2] < 10.0 - 1e-5,
+                "a span ran off to the plate edge: {r:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cap_rects_strict_drops_a_span_that_never_closes() {
+        // One edge on its own is not a contour: the plain walk paints to the
+        // end of the plate, the strict one would rather show nothing.
+        let layer = Layer {
+            z: 1.0,
+            segs: vec![Seg {
+                a: [1.0, 0.0],
+                b: [3.0, 4.0],
+            }],
+        };
+        let rects = cap_rects(&layer, [0.0, 0.0], [10.0, 10.0], 1.0);
+        assert!(
+            rects.iter().any(|r| (r[2] - 10.0).abs() < 1e-5),
+            "the plain walk mirrors the mask, was {rects:?}"
+        );
+        let strict = cap_rects_strict(&layer, [0.0, 0.0], [10.0, 10.0], 1.0);
+        assert!(strict.is_empty(), "strict invents nothing, was {strict:?}");
     }
 
     #[test]

@@ -4,6 +4,16 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- The preview picture the HALOT-X1 shows is a shaded 3-D view of the
+  plate now, the way the printer's own previews look: the sliced spans
+  stacked as solid boxes, seen from a corner above and lit from the
+  upper left, drawn straight from the outlines rather than the 15 K
+  masks. A span whose contour never closes is dropped instead of
+  streaking across the plate, and scanlines sample the middle of their
+  band so a vertex resting exactly on an edge no longer opens one.
+
 ## [0.1.21] - 2026-11-25
 
 ### Fixed

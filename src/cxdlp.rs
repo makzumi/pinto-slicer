@@ -271,52 +271,44 @@ fn rgb15_rle(pixels: &[u16]) -> Vec<u8> {
     out
 }
 
-/// A grey silhouette of everything that gets printed, built from the layer
-/// outlines rather than the 15 K masks so it costs nothing extra.
-fn thumbnail(slice: &SliceResult, printer: &PrinterProfile, size: usize) -> (Vec<u16>, [f32; 3]) {
-    let mut cover = vec![0u8; size * size];
+/// A shaded 3-D view of everything the file prints, the way the printer's
+/// own previews look: the sliced spans stacked as solid boxes, seen from a
+/// corner above, lit from the upper left. Flat greys on black, drawn from
+/// the spans rather than the 15 K masks, so it costs a fraction of the
+/// export itself.
+fn thumbnail(
+    slice: &SliceResult,
+    printer: &PrinterProfile,
+    small: usize,
+    large: usize,
+) -> (Vec<u16>, Vec<u16>, [f32; 3]) {
+    let bed = [
+        [-printer.build[0] * 0.5, -printer.build[1] * 0.5],
+        [printer.build[0] * 0.5, printer.build[1] * 0.5],
+    ];
+    // One scanline pass per layer turns its outlines into world-space
+    // rectangles; tall files keep every other layer, which the eye cannot
+    // tell from the full stack. The pass is shared by both sizes so the
+    // plate is walked once, and a span whose contour never closes is
+    // dropped rather than streaking across the plate.
+    let step = if slice.layers.len() > 1200 { 2 } else { 1 };
+    let pitch = (slice.layer_height.max(0.01)) * step as f32;
+    let mut boxes: Vec<(f32, [f32; 4])> = Vec::new();
     let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
-    let step = (slice.layers.len() / 150).max(1);
+    let mut z_lo = f32::MAX;
+    let mut z_hi = f32::MIN;
     for layer in slice.layers.iter().step_by(step) {
-        for seg in &layer.segs {
-            for p in [seg.a, seg.b] {
-                lo[0] = lo[0].min(p[0]);
-                lo[1] = lo[1].min(p[1]);
-                hi[0] = hi[0].max(p[0]);
-                hi[1] = hi[1].max(p[1]);
-            }
-            let a = preview_pixel(seg.a, printer, size);
-            let b = preview_pixel(seg.b, printer, size);
-            let steps = (a.0 - b.0)
-                .abs()
-                .max((a.1 - b.1).abs())
-                .min(size as i32 * 4);
-            for k in 0..=steps {
-                let t = if steps == 0 {
-                    0.0
-                } else {
-                    k as f32 / steps as f32
-                };
-                let x = (a.0 as f32 + (b.0 - a.0) as f32 * t).round() as i32;
-                let y = (a.1 as f32 + (b.1 - a.1) as f32 * t).round() as i32;
-                // Thicker than a hairline so the silhouette still reads at 120 px.
-                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                    let (px, py) = (x + dx, y + dy);
-                    if px >= 0 && py >= 0 && (px as usize) < size && (py as usize) < size {
-                        cover[py as usize * size + px as usize] = 255;
-                    }
-                }
-            }
+        for r in crate::slicer::cap_rects_strict(layer, bed[0], bed[1], pitch) {
+            lo[0] = lo[0].min(r[0]);
+            lo[1] = lo[1].min(r[1]);
+            hi[0] = hi[0].max(r[2]);
+            hi[1] = hi[1].max(r[3]);
+            z_lo = z_lo.min(layer.z);
+            z_hi = z_hi.max(layer.z);
+            boxes.push((layer.z, r));
         }
     }
-    let pixels = cover
-        .into_iter()
-        .map(|v| {
-            let g = u16::from(v >> 3);
-            (g << 11) | ((g << 1) << 5) | g
-        })
-        .collect();
-    let bounds = if lo[0] > hi[0] {
+    let bounds = if boxes.is_empty() {
         [0.0, 0.0, slice.height.max(0.0)]
     } else {
         [
@@ -325,19 +317,198 @@ fn thumbnail(slice: &SliceResult, printer: &PrinterProfile, size: usize) -> (Vec
             slice.height.max(0.0),
         ]
     };
-    (pixels, bounds)
+    let small_pixels = if boxes.is_empty() {
+        vec![0u16; small * small]
+    } else {
+        render_plate(&boxes, [lo, hi], [z_lo, z_hi], small)
+    };
+    let large_pixels = if boxes.is_empty() {
+        vec![0u16; large * large]
+    } else {
+        render_plate(&boxes, [lo, hi], [z_lo, z_hi], large)
+    };
+    (small_pixels, large_pixels, bounds)
 }
 
-fn preview_pixel(p: [f32; 2], printer: &PrinterProfile, size: usize) -> (i32, i32) {
-    let mut x = (p[0] / printer.build[0].max(0.001) + 0.5) * size as f32;
-    let mut y = (p[1] / printer.build[1].max(0.001) + 0.5) * size as f32;
-    if printer.mirror[0] {
-        x = size as f32 - x;
+/// Where the eye sits: a corner three quarters around the plate, looking
+/// down. The yaw shows two walls, the pitch shows the plate's floor
+/// receding instead of a flat map.
+const VIEW_YAW_DEG: f32 = 32.0;
+const VIEW_PITCH_DEG: f32 = 28.0;
+/// Towards the light, in plate millimetres: up, to the left, in front.
+const LIGHT: [f32; 3] = [-0.34, -0.44, 0.83];
+
+/// Draw the stacked boxes with a z-buffer: each rectangle paints its top
+/// face and the four walls that hang below it, whichever wall the camera
+/// can see is decided by depth, exactly the way a solid hides its own
+/// far side.
+fn render_plate(
+    boxes: &[(f32, [f32; 4])],
+    xy: [[f32; 2]; 2],
+    zr: [f32; 2],
+    size: usize,
+) -> Vec<u16> {
+    let yaw = VIEW_YAW_DEG.to_radians();
+    let pitch = VIEW_PITCH_DEG.to_radians();
+    let (cy, sy) = (yaw.cos(), yaw.sin());
+    let (cp, sp) = (pitch.cos(), pitch.sin());
+    // screen: x right, y up, depth towards the eye (bigger is nearer).
+    let project = |p: [f32; 3]| -> [f32; 3] {
+        let u = p[0] * cy - p[1] * sy;
+        let v = p[0] * sy + p[1] * cy;
+        [u, p[2] * cp - v * sp, p[2] * sp + v * cp]
+    };
+    // Fit the projected box of the whole plate into the frame with a quiet
+    // margin, the way a camera auto-frames a part.
+    let mut corner = [[f32::MAX, f32::MIN]; 2];
+    for dx in [xy[0][0], xy[1][0]] {
+        for dy in [xy[0][1], xy[1][1]] {
+            for dz in [zr[0], zr[1]] {
+                let q = project([dx, dy, dz]);
+                corner[0][0] = corner[0][0].min(q[0]);
+                corner[0][1] = corner[0][1].max(q[0]);
+                corner[1][0] = corner[1][0].min(q[1]);
+                corner[1][1] = corner[1][1].max(q[1]);
+            }
+        }
     }
-    if printer.mirror[1] {
-        y = size as f32 - y;
+    let margin = (size as f32 * 0.08).max(3.0);
+    let room = (size as f32 - 2.0 * margin).max(1.0);
+    let span = [
+        (corner[0][1] - corner[0][0]).max(1e-6),
+        (corner[1][1] - corner[1][0]).max(1e-6),
+    ];
+    let scale = (room / span[0]).min(room / span[1]);
+    let mid = [
+        (corner[0][0] + corner[0][1]) * 0.5,
+        (corner[1][0] + corner[1][1]) * 0.5,
+    ];
+    let ox = size as f32 * 0.5 - mid[0] * scale;
+    let oy = size as f32 * 0.5 + mid[1] * scale;
+    let light_len = (LIGHT[0] * LIGHT[0] + LIGHT[1] * LIGHT[1] + LIGHT[2] * LIGHT[2]).sqrt();
+    let light = [
+        LIGHT[0] / light_len,
+        LIGHT[1] / light_len,
+        LIGHT[2] / light_len,
+    ];
+    let shade = |n: [f32; 3]| -> u16 {
+        let lit = (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]).max(0.0);
+        let g = ((0.30 + 0.70 * lit) * 31.0).round() as u16;
+        (g << 11) | ((g * 2) << 5) | g
+    };
+    let top = shade([0.0, 0.0, 1.0]);
+
+    let mut zbuf = vec![f32::MIN; size * size];
+    let mut out = vec![0u16; size * size];
+    let drop = 0.6_f32.max(0.0); // walls hang a little past their floor
+    for (z, r) in boxes {
+        let zf = *z;
+        // Corners of the box's top face, in plate millimetres.
+        let c = [
+            [r[0], r[1], zf],
+            [r[2], r[1], zf],
+            [r[2], r[3], zf],
+            [r[0], r[3], zf],
+        ];
+        let corners: Vec<[f32; 3]> = c.iter().map(|p| project(*p)).collect();
+        // Top face.
+        tri(
+            &mut zbuf, &mut out, size, scale, ox, oy, top, corners[0], corners[1], corners[2],
+        );
+        tri(
+            &mut zbuf, &mut out, size, scale, ox, oy, top, corners[0], corners[2], corners[3],
+        );
+        // Four walls: each edge of the top face, dropped to the floor.
+        let below: Vec<[f32; 3]> = corners
+            .iter()
+            .map(|p| [p[0], p[1] - drop * cp, p[2] - drop * sp])
+            .collect();
+        for k in 0..4 {
+            let k2 = (k + 1) % 4;
+            // Outward normal: edge k runs corner[k] -> corner[k2].
+            let n = match k {
+                0 => [0.0, -1.0, 0.0], // y0 edge
+                1 => [1.0, 0.0, 0.0],  // x1 edge
+                2 => [0.0, 1.0, 0.0],  // y1 edge
+                _ => [-1.0, 0.0, 0.0], // x0 edge
+            };
+            let colour = shade(n);
+            tri(
+                &mut zbuf,
+                &mut out,
+                size,
+                scale,
+                ox,
+                oy,
+                colour,
+                corners[k],
+                corners[k2],
+                below[k2],
+            );
+            tri(
+                &mut zbuf, &mut out, size, scale, ox, oy, colour, corners[k], below[k2], below[k],
+            );
+        }
     }
-    (x.floor() as i32, y.floor() as i32)
+    out
+}
+
+/// Fill one projected triangle into the z-buffered image: screen-space
+/// edges, depth interpolated flat, first-come wins ties.
+#[allow(clippy::too_many_arguments)]
+fn tri(
+    zbuf: &mut [f32],
+    out: &mut [u16],
+    size: usize,
+    scale: f32,
+    ox: f32,
+    oy: f32,
+    colour: u16,
+    a: [f32; 3],
+    b: [f32; 3],
+    c: [f32; 3],
+) {
+    let to_px = |p: [f32; 3]| -> (f32, f32, f32) { (ox + p[0] * scale, oy - p[1] * scale, p[2]) };
+    let (ax, ay, az) = to_px(a);
+    let (bx, by, bz) = to_px(b);
+    let (cx, cy, cz) = to_px(c);
+    let minx = ax.min(bx).min(cx).floor().max(0.0) as i32;
+    let maxx = ax.max(bx).max(cx).ceil().min(size as f32) as i32;
+    let miny = ay.min(by).min(cy).floor().max(0.0) as i32;
+    let maxy = ay.max(by).max(cy).ceil().min(size as f32) as i32;
+    if minx >= maxx || miny >= maxy {
+        return;
+    }
+    let area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    if area.abs() < 1e-9 {
+        return;
+    }
+    let inv = 1.0 / area;
+    for py in miny..maxy {
+        for px in minx..maxx {
+            let fx = px as f32 + 0.5;
+            let fy = py as f32 + 0.5;
+            let w0 = (bx - ax) * (fy - ay) - (by - ay) * (fx - ax);
+            let w1 = (cx - bx) * (fy - by) - (cy - by) * (fx - bx);
+            let w2 = (ax - cx) * (fy - cy) - (ay - cy) * (fx - cx);
+            let (e0, e1, e2) = if area > 0.0 {
+                (w0, w1, w2)
+            } else {
+                (-w0, -w1, -w2)
+            };
+            if e0 < 0.0 || e1 < 0.0 || e2 < 0.0 {
+                continue;
+            }
+            // w0 pairs with C's depth, w1 with A's, w2 with B's; the
+            // three weights always add up to twice the area.
+            let t = (e1 * az + e2 * bz + e0 * cz) * inv * 0.5;
+            let idx = py as usize * size + px as usize;
+            if t > zbuf[idx] + 1e-6 {
+                zbuf[idx] = t;
+                out[idx] = colour;
+            }
+        }
+    }
 }
 
 fn write_v4_preview(file: &mut std::fs::File, size: usize, encoded: &[u8]) -> std::io::Result<()> {
@@ -517,8 +688,8 @@ pub fn write_v4(
         || printer.machine_name.eq_ignore_ascii_case("R009")
         || res == (15120, 6230);
     let header_size = 4 + MAGIC.len() + 2 + 4 + printer.machine_name.len() + 1 + 80;
-    let (small_preview, model_size) = thumbnail(slice, printer, PREVIEW_SMALL);
-    let (large_preview, _) = thumbnail(slice, printer, PREVIEW_LARGE);
+    let (small_preview, large_preview, model_size) =
+        thumbnail(slice, printer, PREVIEW_SMALL, PREVIEW_LARGE);
     let small_encoded = rgb15_rle(&small_preview);
     let large_encoded = rgb15_rle(&large_preview);
     let small_offset = header_size as u32 + MODEL_SIZE_BYTES;
@@ -1088,6 +1259,46 @@ mod tests {
         if std::env::var_os("KEEP_FORMAT_SAMPLES").is_none() {
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn the_preview_is_a_shaded_corner_view() {
+        let printer = &default_printers()[0];
+        let sl = slicer::slice(&[mesh::sample_block()], 0.5);
+        let (small, large, bounds) = thumbnail(&sl, printer, PREVIEW_SMALL, PREVIEW_LARGE);
+        assert_eq!(small.len(), PREVIEW_SMALL * PREVIEW_SMALL);
+        assert_eq!(large.len(), PREVIEW_LARGE * PREVIEW_LARGE);
+        // A corner view of a block is a shaded block on a black field, not
+        // a flat silhouette: at least three greys — the lit wall, the top
+        // face, the dark wall — and a good part of the frame lit.
+        let lit = large.iter().filter(|p| **p != 0).count();
+        assert!(
+            lit > 3000,
+            "the block should light much of the frame, was {lit}"
+        );
+        let mut shades: Vec<u16> = large.iter().copied().filter(|p| *p != 0).collect();
+        shades.sort_unstable();
+        shades.dedup();
+        assert!(shades.len() >= 3, "want shaded faces, got {shades:?}");
+        for p in &large {
+            let (r, g, b) = (*p >> 11, (*p >> 5) & 0x3F, *p & 0x1F);
+            assert_eq!(r, b, "preview pixels stay grey");
+            assert_eq!(g, r * 2, "preview pixels stay grey");
+        }
+        // The same plate twice renders the same picture, both sizes.
+        let again = thumbnail(&sl, printer, PREVIEW_SMALL, PREVIEW_LARGE);
+        assert_eq!(small, again.0);
+        assert_eq!(large, again.1);
+        // The size the file reports is the size of what was sliced.
+        assert!((bounds[0] - 16.0).abs() < 0.3, "width {bounds:?}");
+        assert!((bounds[1] - 16.0).abs() < 0.3, "depth {bounds:?}");
+        assert!((bounds[2] - sl.height).abs() < 1e-4, "height {bounds:?}");
+        // An empty plate renders quiet and black.
+        let empty = slicer::SliceResult::default();
+        let (s, l, b) = thumbnail(&empty, printer, PREVIEW_SMALL, PREVIEW_LARGE);
+        assert!(s.iter().all(|p| *p == 0));
+        assert!(l.iter().all(|p| *p == 0));
+        assert_eq!(b, [0.0, 0.0, 0.0]);
     }
 
     #[test]
