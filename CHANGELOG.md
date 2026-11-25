@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-11-24
+
 ### Added
 
 - **Copy as many pieces as asked for** from the left strip: **Copy…** asks for a number and puts that many copies of every picked piece beside their originals, wrapping into a second row when the plate runs out. **Ctrl+D** still makes one copy without asking.
@@ -171,7 +173,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.15...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.16...HEAD
+[0.1.16]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.16
 [0.1.15]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.15
 [0.1.14]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.14
 [0.1.13]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.13
