@@ -129,7 +129,13 @@ pub struct SupportConfig {
     /// tips, so it is the density control as well as a spacing one.
     pub touch_tip_distance: f32,
     /// Measured from vertical: a face is flagged when normal.z < -sin(angle).
+    /// With `overhangs_only` off, every face that points down is flagged
+    /// instead and the angle only matters for the debug view.
     pub overhang_angle_deg: f32,
+    /// HALOT Box calls the same switch "Overhangs Only". Off (the proven
+    /// profile): shallow slopes and flat undersides get support too. On:
+    /// only faces steeper than `overhang_angle_deg`.
+    pub overhangs_only: bool,
     pub tip: TipConfig,
     pub branch_angle_deg: f32,
     pub branch_diameter: f32,
@@ -152,6 +158,9 @@ impl Default for SupportConfig {
             // 4 mm apart, which this app calls the High density.
             touch_tip_distance: Density::High.spacing(),
             overhang_angle_deg: 45.0,
+            // HALOT Box's working default: Overhangs Only unchecked, so
+            // everything facing down is supported, not just steep overhangs.
+            overhangs_only: false,
             tip: TipConfig::default(),
             branch_angle_deg: 45.0,
             branch_diameter: 0.9,
@@ -293,6 +302,7 @@ mod tests {
         assert_eq!(c.height_from_platform, 6.0);
         assert_eq!(c.touch_tip_distance, Density::High.spacing());
         assert_eq!(c.overhang_angle_deg, 45.0);
+        assert!(!c.overhangs_only, "the working profile leaves it unchecked");
         assert_eq!(c.tip.upper_diameter, 0.6);
         assert_eq!(c.tip.lower_diameter, 1.2);
         assert_eq!(c.tip.length, 3.0);

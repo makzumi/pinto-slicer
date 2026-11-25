@@ -8,9 +8,13 @@ use super::route::Pieces;
 use super::{Brace, Trunk};
 use crate::mesh::Vec3;
 
-const MAX_BRACES: usize = 400;
+const MAX_BRACES: usize = 4000;
 const MAX_LINK_DISTANCE: f32 = 10.0;
-const CASCADE_NEIGHBORS: usize = 3;
+const CASCADE_NEIGHBORS: usize = 4;
+/// Cross braces start this far above the plate — HALOT Box's Cross Start
+/// Height, which keeps the lattice out of the base's chamfer and the film's
+/// first peel.
+const CROSS_START_HEIGHT: f32 = 3.0;
 
 pub fn strengthen(pieces: &mut Pieces, cfg: &SupportConfig, tree: &Bvh) {
     // Feet must remain at least as wide as the validated pillar above them.
@@ -73,7 +77,7 @@ fn interconnect(
     if step < 0.25 {
         return false;
     }
-    let bottom = a.bottom.z.max(b.bottom.z) + cfg.base.plate_thickness;
+    let bottom = (a.bottom.z.max(b.bottom.z) + cfg.base.plate_thickness).max(CROSS_START_HEIGHT);
     let top = a.top.z.min(b.top.z);
     if top - bottom < step {
         return false;

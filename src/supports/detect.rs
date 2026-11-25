@@ -141,7 +141,13 @@ pub fn detect(
     cfg: &SupportConfig,
     cancel: &AtomicBool,
 ) -> Detection {
-    let limit = -cfg.overhang_angle_deg.to_radians().sin();
+    let limit = if cfg.overhangs_only {
+        -cfg.overhang_angle_deg.to_radians().sin()
+    } else {
+        // "Overhangs Only" unchecked: every face that points down counts,
+        // shallow slopes and flat undersides included.
+        -1e-4
+    };
     let overhang: Vec<u32> = (0..faces.len() as u32)
         .into_par_iter()
         .filter(|i| {

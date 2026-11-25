@@ -3983,6 +3983,17 @@ impl App {
                         .suffix("°"),
                     )
                     .changed();
+                changed |= ui
+                    .checkbox(
+                        &mut self.settings.supports.overhangs_only,
+                        egui::RichText::new("Only steep overhangs").size(12.5),
+                    )
+                    .on_hover_text(
+                        "Unchecked, every face that points down gets support — shallow slopes and \
+                         flat undersides included, the way HALOT Box's working profile does it. \
+                         Checked, only faces steeper than the angle above.",
+                    )
+                    .changed();
                 ui.checkbox(
                     &mut self.show_debug,
                     egui::RichText::new("Show overhang faces").size(12.5),

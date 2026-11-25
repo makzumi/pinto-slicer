@@ -184,6 +184,9 @@ impl SupportModel {
             meshgen::append(&mut m, &meshgen::tip(anchor, sides));
         }
         for b in &self.branches {
+            // A ball at each end: the junction of a strut and a column is
+            // where peeling loads concentrate, and a sphere there tears rather
+            // than snaps — the look HALOT Box's column supports are known by.
             if let Some(via) = b.via {
                 meshgen::append(
                     &mut m,
@@ -193,12 +196,18 @@ impl SupportModel {
                     &mut m,
                     &meshgen::frustum(via, b.diameter * 0.5, b.to, b.diameter * 0.5, sides),
                 );
+                meshgen::append(&mut m, &meshgen::ball(via, b.diameter * 0.5, sides.max(8)));
             } else {
                 meshgen::append(
                     &mut m,
                     &meshgen::frustum(b.from, b.diameter * 0.5, b.to, b.diameter * 0.5, sides),
                 );
             }
+            meshgen::append(
+                &mut m,
+                &meshgen::ball(b.from, b.diameter * 0.5, sides.max(8)),
+            );
+            meshgen::append(&mut m, &meshgen::ball(b.to, b.diameter * 0.5, sides.max(8)));
         }
         for t in &self.trunks {
             meshgen::append(
@@ -214,6 +223,8 @@ impl SupportModel {
                 &mut m,
                 &meshgen::frustum(b.a, b.diameter * 0.5, b.b, b.diameter * 0.5, sides),
             );
+            meshgen::append(&mut m, &meshgen::ball(b.a, b.diameter * 0.5, sides.max(8)));
+            meshgen::append(&mut m, &meshgen::ball(b.b, b.diameter * 0.5, sides.max(8)));
         }
         for p in &self.plates {
             meshgen::append(&mut m, &meshgen::plate(p));

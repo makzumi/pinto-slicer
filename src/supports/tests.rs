@@ -1132,3 +1132,72 @@ fn a_ball_slices_to_a_solid_disk() {
     assert_ne!(mask[65 * w + 50], 0, "ball interior must be solid");
     assert_eq!(mask[0], 0, "outside the ball must stay empty");
 }
+
+#[test]
+fn a_wall_that_barely_faces_down_gets_support_unless_overhangs_only() {
+    // A slab tilted 70° from horizontal: its underside is a hair past
+    // vertical, far shallower than the 45° setting would ever flag. HALOT
+    // Box's working profile (Overhangs Only unchecked) still gives it a
+    // field of tips; the checked box leaves it bare.
+    let cfg = SupportConfig::default();
+    let wall = block((60.0, 20.0, 6.0), 0.0);
+    let (lo, hi) = wall.bounds();
+    let centre = (lo + hi) * 0.5;
+    let mut turn = crate::mesh::Transform::default();
+    turn.turn_about(1, 70.0, centre);
+    let mut wall = wall.transformed(&turn);
+    super::lift(std::slice::from_mut(&mut wall), cfg.height_from_platform);
+
+    let full = run(&[wall.clone()], &cfg);
+    assert!(
+        full.stats.overhang_faces > 0,
+        "the unchecked profile sees the wall"
+    );
+
+    let steep = run(
+        &[wall],
+        &SupportConfig {
+            overhangs_only: true,
+            ..cfg
+        },
+    );
+    assert!(
+        steep.stats.overhang_faces < full.stats.overhang_faces,
+        "steep-only mode must flag fewer faces, {} vs {}",
+        steep.stats.overhang_faces,
+        full.stats.overhang_faces
+    );
+}
+
+#[test]
+fn strut_junctions_carry_balls() {
+    let mut model = SupportModel::default();
+    model.branches.push(Branch {
+        id: 0,
+        from: Vec3::new(0.0, 0.0, 10.0),
+        via: None,
+        to: Vec3::new(0.0, 0.0, 0.0),
+        diameter: 0.9,
+        tip_id: 0,
+    });
+    model.braces.push(Brace {
+        id: 0,
+        a: Vec3::new(-5.0, 0.0, 2.0),
+        b: Vec3::new(5.0, 0.0, 2.0),
+        diameter: 0.9,
+        model_id: 0,
+    });
+    let mesh = model.mesh(12);
+    // The bare strut, without the balls a junction needs.
+    let bare = meshgen::frustum(
+        Vec3::new(0.0, 0.0, 10.0),
+        0.45,
+        Vec3::new(0.0, 0.0, 0.0),
+        0.45,
+        12,
+    );
+    assert!(
+        mesh.verts.len() > bare.verts.len(),
+        "the balls add geometry at the joints"
+    );
+}

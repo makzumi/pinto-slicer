@@ -6,6 +6,7 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ### Changed
 
+- **Supports grow the way the proven slicer grows them.** HALOT Box's working profile leaves "Overhangs Only" unchecked, so every face that points down gets support — shallow slopes and flat undersides included — and Pinto now starts from that coverage too (a checkbox, "Only steep overhangs", brings the old behaviour back). Strut junctions carry the spheres the column style is known by, and the cross-brace lattice got the profile's own numbers: braces start 3 mm above the plate and no longer run out at 400.
 - **The defaults are the numbers the machine has always printed with.** Every file HALOT Box ever wrote for the X1 carried the same built-in profile, no matter what its settings boxes said: 30 s initial exposure, 1.5 s normal, 4 bottom layers, an 8 mm rise at 300 mm/min and 4 s of settle. Pinto now starts from those numbers — including the tip spacing, 4 mm apart (the High density), the way every well-printed support plate was made.
 ## [0.1.20] - 2026-11-25
 
