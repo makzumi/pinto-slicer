@@ -6672,16 +6672,18 @@ mod tests {
                 } else {
                     h
                 };
-                assert_eq!(app.export.dir, expected.display().to_string());
+                assert_eq!(std::path::Path::new(&app.export.dir), expected);
             }
             None => assert_eq!(app.export.dir, "resin-job"),
         }
 
-        // An opened project tells the job file where to live.
+        // An opened project tells the job file where to live. Paths, not
+        // strings: Windows temp folders carry a trailing backslash that a
+        // folder taken off a file name does not.
         let path = std::env::temp_dir().join("resin_slicer_export_dir.rslice");
         app.project().save(&path).unwrap();
         app.load_path(&path);
-        assert_eq!(app.export.dir, std::env::temp_dir().display().to_string());
+        assert_eq!(std::path::Path::new(&app.export.dir), std::env::temp_dir());
 
         // So does a save to a new place.
         let folder = std::env::temp_dir().join("resin_slicer_export_dir_project");
@@ -6694,7 +6696,7 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
-        assert_eq!(app.export.dir, folder.display().to_string());
+        assert_eq!(std::path::Path::new(&app.export.dir), folder);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&folder);
     }
