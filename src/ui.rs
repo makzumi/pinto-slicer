@@ -458,8 +458,8 @@ impl ModelEntry {
 /// Walking the layers like a flipbook: what the play button needs to know.
 struct Playback {
     playing: bool,
-    /// Playback rate: 1× holds each layer for `BASE_PER_LAYER` seconds, 2× for
-    /// half as long, and so on.
+    /// Playback rate, in pill labels: every step up the ladder runs four times
+    /// faster than the one before it, whatever the label says.
     speed: f32,
     /// Start over at the last layer instead of coming to rest there.
     looping: bool,
@@ -467,20 +467,27 @@ struct Playback {
     left: f32,
 }
 
-/// Seconds one layer stays up at 1×: slow enough to read the picture, quick
-/// enough that a whole plate plays in well under a minute. The label says 1×,
-/// but the film runs at twice the pace the first releases used — a pace that
-/// felt right on a slow plate turns out sleepy on a thousand layers.
-const BASE_PER_LAYER: f32 = 0.06;
+/// Seconds a layer stays up at the film's base pace: slow enough to read the
+/// picture, quick enough that a whole plate plays in well under a minute.
+const BASE_PER_LAYER: f32 = 0.12;
 
-/// The speeds the transport offers, slowest first.
+/// The speeds the transport offers, slowest first — the pills' labels.
 const SPEEDS: [f32; 4] = [0.5, 1.0, 2.0, 4.0];
+
+/// What each pill really does to the base pace, in the same order: every step
+/// up the ladder quadruples the film speed, so the top pill is 128 times the
+/// base and sweeps a thousand layers in about a second.
+const REAL_SPEEDS: [f32; 4] = [2.0, 8.0, 32.0, 128.0];
 
 impl Playback {
     fn per_layer(&self) -> f32 {
-        // The floor lets 4× reach its doubled 15 ms instead of pinning it at
-        // the old ceiling; the screen's own frame rate floors it in practice.
-        (BASE_PER_LAYER / self.speed).clamp(0.01, 1.0)
+        // The labels are a ladder, not a promise: each pill runs four times
+        // the pace of the one before it, whatever the number on it says.
+        let slot = SPEEDS
+            .iter()
+            .position(|s| (s - self.speed).abs() < 1e-3)
+            .unwrap_or(1);
+        (BASE_PER_LAYER / REAL_SPEEDS[slot]).max(0.0005)
     }
 
     /// One layer forward: the last layer either starts the plate over or brings
@@ -2850,9 +2857,14 @@ impl App {
                     ui.horizontal(|ui| {
                         let mut speed = self.playback.speed;
                         ui.label(egui::RichText::new("Speed").size(11.5).color(MUTED));
-                        for s in SPEEDS {
+                        for (&s, &real) in SPEEDS.iter().zip(REAL_SPEEDS.iter()) {
                             let on = (speed - s).abs() < 1e-3;
-                            let hint = format!("{:.2} s per layer", BASE_PER_LAYER / s);
+                            let each = BASE_PER_LAYER / real;
+                            let hint = if each < 0.05 {
+                                format!("about {:.0} layers a second", 1.0 / each)
+                            } else {
+                                format!("{each:.2} s per layer")
+                            };
                             if transport_pill(ui, &speed_label(s), on, &hint) {
                                 speed = s;
                             }
@@ -2861,17 +2873,16 @@ impl App {
                             self.playback.speed = speed;
                             self.playback.left = self.playback.per_layer();
                         }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let on = self.playback.looping;
-                            let hint = if on {
-                                "start over when the last layer has been shown"
-                            } else {
-                                "stop on the last layer"
-                            };
-                            if transport_pill(ui, "Loop", on, hint) {
-                                self.playback.looping = !on;
-                            }
-                        });
+                        ui.add_space(6.0);
+                        let looping = self.playback.looping;
+                        let hint = if looping {
+                            "start over when the last layer has been shown"
+                        } else {
+                            "stop on the last layer"
+                        };
+                        if transport_pill(ui, "Loop", looping, hint) {
+                            self.playback.looping = !looping;
+                        }
                     });
                 }
             });
@@ -2885,8 +2896,10 @@ impl App {
         }
         let dt = ctx.input(|i| i.stable_dt).min(0.25);
         self.playback.left -= dt;
-        if self.playback.left <= 0.0 {
-            self.playback.left = self.playback.per_layer();
+        // Fast pills owe several layers a frame, so the walk catches up in one
+        // tick instead of pinning every speed to the screen's frame rate.
+        while self.playback.left <= 0.0 {
+            self.playback.left += self.playback.per_layer();
             let (next, keep_going) = self.playback.step(self.current_layer.min(n - 1), n);
             self.current_layer = next;
             self.playback.playing = keep_going;
@@ -6325,26 +6338,19 @@ mod tests {
     }
 
     #[test]
-    fn speed_scales_the_time_a_layer_stays_up() {
-        let mut playback = super::Playback::default();
-        assert!((playback.per_layer() - super::BASE_PER_LAYER).abs() < 1e-6);
-        playback.speed = 2.0;
-        assert!((playback.per_layer() - super::BASE_PER_LAYER * 0.5).abs() < 1e-6);
-        playback.speed = 0.5;
-        assert!((playback.per_layer() - super::BASE_PER_LAYER * 2.0).abs() < 1e-6);
-        // The pills still say 0.5× to 4×, but each runs at twice the pace the
-        // first release promised: 1× is 60 ms a layer, 4× is the old 8×.
-        assert!((super::BASE_PER_LAYER - 0.06).abs() < 1e-6);
-        for speed in super::SPEEDS {
-            assert!(
-                (0.01..=1.0).contains(
-                    &super::Playback {
-                        speed,
-                        ..Default::default()
-                    }
-                    .per_layer()
-                ),
-                "{speed}× lands outside the tick's step range"
+    fn the_ladder_runs_exponentially_faster_than_its_labels() {
+        // The slowest pill doubles the base pace and every step up quadruples
+        // it: the labels say 0.5× to 4×, the film runs 2× to 128×.
+        for (&label, &real) in super::SPEEDS.iter().zip(super::REAL_SPEEDS.iter()) {
+            let each = super::Playback {
+                speed: label,
+                ..Default::default()
+            }
+            .per_layer();
+            assert_eq!(
+                each,
+                (super::BASE_PER_LAYER / real).max(0.0005),
+                "{label}× is running the wrong pace"
             );
         }
         assert_eq!(super::speed_label(1.0), "1×");
