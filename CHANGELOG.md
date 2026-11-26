@@ -4,6 +4,12 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- Standing trunks are cones now, not sticks: about 5 mm wide at the
+  platform, slim where they meet the model — the shape of the columns the
+  printer already prints well. Trunks held from the model stay straight.
+
 ## [0.1.25] - 2026-11-25
 
 ### Changed

@@ -166,6 +166,9 @@ pub struct SupportModel {
     pub debug_mesh: Mesh,
     /// Island positions, for the debug markers.
     pub debug_islands: Vec<Vec3>,
+    /// The settings the model was grown with, so the mesh can shape the
+    /// trunks the same way the panel promises.
+    pub cfg: SupportConfig,
 }
 
 impl SupportModel {
@@ -211,9 +214,20 @@ impl SupportModel {
             meshgen::append(&mut m, &meshgen::ball(b.to, b.diameter * 0.5, sides.max(8)));
         }
         for t in &self.trunks {
+            // A trunk that stands on the platform is a cone: fat at the
+            // foot, slim where the tips meet the model, the way the
+            // columns this machine already prints are shaped. A trunk
+            // held from the model stays a straight stick: it hangs from
+            // its bond, and a flare there would only print against the
+            // piece.
+            let base = if t.bottom.z < 0.1 {
+                (self.cfg.trunk_diameter_max * 0.5).max(t.diameter * 0.5)
+            } else {
+                t.diameter * 0.5
+            };
             meshgen::append(
                 &mut m,
-                &meshgen::frustum(t.bottom, t.diameter * 0.5, t.top, t.diameter * 0.5, sides),
+                &meshgen::frustum(t.bottom, base, t.top, t.diameter * 0.5, sides),
             );
         }
         for f in &self.feet {
@@ -393,7 +407,10 @@ impl SupportModel {
 /// `cfg.height_from_platform` (see `lift`).
 pub fn generate(meshes: &[Mesh], cfg: &SupportConfig, cancel: &AtomicBool) -> SupportModel {
     let started = Instant::now();
-    let mut model = SupportModel::default();
+    let mut model = SupportModel {
+        cfg: cfg.clone(),
+        ..SupportModel::default()
+    };
     if meshes.is_empty() {
         return model;
     }

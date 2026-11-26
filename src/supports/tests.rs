@@ -1566,3 +1566,60 @@ fn scratch_orphans() {
         );
     }
 }
+
+#[test]
+fn standing_trunks_taper_from_a_fat_foot() {
+    // A trunk on the platform becomes a cone: `trunk_diameter_max` wide at
+    // the foot, `trunk_diameter` wide where the tips meet the model. A trunk
+    // held from the model stays a straight stick.
+    let mut model = SupportModel {
+        cfg: crate::supports::config::SupportConfig::default(),
+        ..SupportModel::default()
+    };
+    model.trunks.push(Trunk {
+        id: 0,
+        bottom: Vec3::new(0.0, 0.0, 0.0),
+        top: Vec3::new(0.0, 0.0, 6.0),
+        diameter: 1.6,
+        tip_ids: vec![],
+        model_id: 0,
+    });
+    model.trunks.push(Trunk {
+        id: 1,
+        bottom: Vec3::new(20.0, 0.0, 5.0),
+        top: Vec3::new(20.0, 0.0, 1.0),
+        diameter: 1.6,
+        tip_ids: vec![],
+        model_id: 0,
+    });
+    let mesh = model.mesh(24);
+
+    // The widest vertex near each end of each trunk, measured from the axis.
+    let widest_near = |mesh: &Mesh, axis_x: f32, z: f32| -> f32 {
+        let mut r = 0.0f32;
+        for v in &mesh.verts {
+            if (v.z - z).abs() < 0.05 && (v.x - axis_x).abs() < 10.0 {
+                r = r.max(((v.x - axis_x).powi(2) + v.y.powi(2)).sqrt());
+            }
+        }
+        r
+    };
+
+    let base = widest_near(&mesh, 0.0, 0.0);
+    let top = widest_near(&mesh, 0.0, 6.0);
+    assert!(
+        (base - 2.5).abs() < 0.05,
+        "the standing trunk starts {base} wide, not 2.5"
+    );
+    assert!(
+        (top - 0.8).abs() < 0.05,
+        "the standing trunk ends {top} wide, not 0.8"
+    );
+
+    let anchor_bottom = widest_near(&mesh, 20.0, 5.0);
+    let anchor_top = widest_near(&mesh, 20.0, 1.0);
+    assert!(
+        (anchor_bottom - 0.8).abs() < 0.05 && (anchor_top - 0.8).abs() < 0.05,
+        "the hanging trunk stays 0.8 wide, not {anchor_bottom} and {anchor_top}"
+    );
+}

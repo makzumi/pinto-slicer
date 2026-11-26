@@ -139,9 +139,12 @@ pub struct SupportConfig {
     pub tip: TipConfig,
     pub branch_angle_deg: f32,
     pub branch_diameter: f32,
-    /// Base trunk width; grows towards `trunk_diameter_max` when a trunk
-    /// carries many tips.
+    /// Trunk width where the tips meet. A trunk carrying many tips grows
+    /// half again wider ([`SupportConfig::trunk_diameter_for`]).
     pub trunk_diameter: f32,
+    /// Trunk width at the foot: a trunk that stands on the platform is a
+    /// cone, this wide at the bottom and slim where the model meets it —
+    /// the shape of the columns the machine already prints well.
     pub trunk_diameter_max: f32,
     pub foot_diameter: f32,
     pub base: BaseConfig,
@@ -165,7 +168,9 @@ impl Default for SupportConfig {
             branch_angle_deg: 45.0,
             branch_diameter: 0.9,
             trunk_diameter: 1.6,
-            trunk_diameter_max: 2.4,
+            // HALOT Box's columns are cones: close to 5 mm at the foot,
+            // slimming to the trunk width where the model meets it.
+            trunk_diameter_max: 5.0,
             foot_diameter: 3.0,
             base: BaseConfig::default(),
             enabled: true,
@@ -200,7 +205,7 @@ impl SupportConfig {
                 self.tip.upper_diameter = 0.5;
                 self.branch_diameter = 0.8;
                 self.trunk_diameter = 1.4;
-                self.trunk_diameter_max = 2.0;
+                self.trunk_diameter_max = 4.2;
                 self.foot_diameter = 2.6;
             }
             Preset::Medium => {}
@@ -209,7 +214,7 @@ impl SupportConfig {
                 self.tip.upper_diameter = 0.8;
                 self.branch_diameter = 1.1;
                 self.trunk_diameter = 2.0;
-                self.trunk_diameter_max = 2.8;
+                self.trunk_diameter_max = 5.8;
                 self.foot_diameter = 3.6;
             }
         }
@@ -243,10 +248,12 @@ impl SupportConfig {
         (self.tip.lower_diameter * 0.5).max(0.1)
     }
 
-    /// Trunk width for a trunk carrying `tips` tips: 1.6 -> 2.4 mm.
+    /// Trunk width for a trunk carrying `tips` tips: 1.6 -> 2.4 mm where
+    /// the tips meet. The foot of a standing trunk is `trunk_diameter_max`
+    /// wide instead.
     pub fn trunk_diameter_for(&self, tips: usize) -> f32 {
         let t = ((tips as f32 - 1.0) / 6.0).clamp(0.0, 1.0);
-        self.trunk_diameter + (self.trunk_diameter_max - self.trunk_diameter) * t
+        self.trunk_diameter * (1.0 + 0.5 * t)
     }
 
     /// A hand-written JSON form, so settings can be saved without a JSON crate.

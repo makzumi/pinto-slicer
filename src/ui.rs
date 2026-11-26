@@ -1790,7 +1790,7 @@ impl App {
         );
         num(
             &mut out,
-            "Trunk Ø max",
+            "Trunk Ø at the foot",
             " mm",
             a.trunk_diameter_max,
             b.trunk_diameter_max,
@@ -6493,11 +6493,12 @@ fn preview_scene(s: &supports::SupportConfig, kind: SupportPreview) -> (Mesh, Me
             platform(&mut m);
             foot(&mut m);
             let r = (s.trunk_diameter * 0.5).max(0.1);
+            let base = (s.trunk_diameter_max * 0.5).max(r);
             meshgen::append(
                 &mut m,
                 &meshgen::frustum(
                     Vec3::new(0.0, 0.0, 0.8),
-                    r,
+                    base,
                     Vec3::new(0.0, 0.0, 13.0),
                     r,
                     20,
@@ -6617,11 +6618,12 @@ fn preview_scene(s: &supports::SupportConfig, kind: SupportPreview) -> (Mesh, Me
             };
             meshgen::append(&mut m, &meshgen::foot(&foot));
             let trunk_r = (s.trunk_diameter * 0.5).max(0.1);
+            let trunk_base = (s.trunk_diameter_max * 0.5).max(trunk_r);
             meshgen::append(
                 &mut m,
                 &meshgen::frustum(
                     Vec3::new(0.0, 0.0, 0.8),
-                    trunk_r,
+                    trunk_base,
                     Vec3::new(0.0, 0.0, merge_z),
                     trunk_r,
                     20,
