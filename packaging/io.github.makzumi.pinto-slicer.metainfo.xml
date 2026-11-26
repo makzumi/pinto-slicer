@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.24/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.25/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,17 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.25" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.25</url>
+      <description>
+        <p>The failed prints had one thing in common: a base sheet the size of the piece under them.</p>
+        <ul>
+          <li>No support pad may become a sheet: past the cap, the pad is cut with a drainable seam between the halves.</li>
+          <li>The pad rim keeps its full thickness and the middle sits lower, so the first peel grabs a lip instead of a feathered edge.</li>
+          <li>The printer preview shades like a lit surface instead of two flat tones.</li>
         </ul>
       </description>
     </release>
