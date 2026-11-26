@@ -1466,7 +1466,10 @@ fn raft_mode_welds_a_forest_into_one_sheet() {
             .abs()
             * 0.5
     };
-    assert!(area(&plates[0]) > 900.0, "the raft sheet is not area-capped");
+    assert!(
+        area(&plates[0]) > 900.0,
+        "the raft sheet is not area-capped"
+    );
 }
 
 #[test]

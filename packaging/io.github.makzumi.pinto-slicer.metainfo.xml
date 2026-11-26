@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.26/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.27/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,16 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.27" date="2026-11-26">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.27</url>
+      <description>
+        <p>Fixes a print failure where parts cured only in the center, and brings supports in line with the printer's own slicer.</p>
+        <ul>
+          <li>The backlight now lights every zone so the whole model cures edge to edge.</li>
+          <li>Thinner, more numerous supports with a single welded raft sheet under each island.</li>
         </ul>
       </description>
     </release>

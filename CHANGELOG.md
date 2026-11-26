@@ -4,6 +4,20 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.27] - 2026-11-26
+
+### Fixed
+
+- Prints no longer cure only in the center of the plate. The job file now
+  tells the backlight to light every zone, so the whole model cures evenly
+  edge to edge.
+
+### Changed
+
+- Supports now match the shape the printer's own slicer produces: thinner
+  and more numerous, with a single welded raft sheet under each connected
+  island instead of scattered pads.
+
 ## [0.1.26] - 2026-11-25
 
 ### Changed
