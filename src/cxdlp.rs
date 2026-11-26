@@ -24,17 +24,19 @@ const LAYER_DEF_EX_SIZE: usize = 44;
 const LAYER_RECORD_SIZE: usize = 120;
 const LAYER_RECORD_TAIL: [u8; 80] = {
     let mut tail = [0u8; 80];
-    // HALOT Box sets 6 in the word at +66 and 0x180 in the word at +78 of
-    // every record, bottom layers and normal ones alike. Nothing documents
-    // them; matching the only writer the printer trusts is cheaper than
-    // guessing what they mean.
-    tail[26] = 0x06;
-    tail[30] = 0x70;
-    tail[33] = 0x07;
-    tail[34] = 0x80;
-    tail[37] = 0x38;
-    tail[38] = 0x80;
-    tail[39] = 0x01;
+    // HALOT Box fills the first 68 bytes of the 80-byte record tail (words
+    // w10..w26) with a per-layer active-region mask: one bit per backlight
+    // zone, telling the firmware which UV zones to light for that layer. The
+    // 12 remaining bytes stay zero. With the mask left zeroed the printer
+    // falls back to lighting only the centre of the vat, so prints come out
+    // with dead edges. Lighting all 544 zones gives a uniform backlight — the
+    // LCD mask still confines the cure to the model, so this only gives up
+    // HALOT Box's per-zone dimming.
+    let mut i = 0;
+    while i < 68 {
+        tail[i] = 0xFF;
+        i += 1;
+    }
     tail
 };
 /// The printer expects the model size as three floats right after the header,
@@ -841,7 +843,7 @@ pub fn write_v4(
         le32(&mut file, address).map_err(|e| formats::io(path, e))?;
         le32(&mut file, size).map_err(|e| formats::io(path, e))?;
         le32(&mut file, 0).map_err(|e| formats::io(path, e))?; // pixel data
-        le32(&mut file, 0).map_err(|e| formats::io(path, e))?; // centroid distance
+        le32(&mut file, 0).map_err(|e| formats::io(path, e))?; // island count
         le32(&mut file, 0).map_err(|e| formats::io(path, e))?; // largest area
         le32(&mut file, 1).map_err(|e| formats::io(path, e))?; // has an image
         le32(&mut file, 0).map_err(|e| formats::io(path, e))?;
