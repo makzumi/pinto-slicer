@@ -38,8 +38,8 @@ impl Default for TipConfig {
     fn default() -> Self {
         Self {
             shape: TipShape::Cone,
-            upper_diameter: 0.6,
-            lower_diameter: 1.2,
+            upper_diameter: 0.65,
+            lower_diameter: 0.85,
             length: 3.0,
             contact_shape: ContactShape::None,
             contact_diameter: 0.8,
@@ -166,12 +166,12 @@ impl Default for SupportConfig {
             overhangs_only: false,
             tip: TipConfig::default(),
             branch_angle_deg: 45.0,
-            branch_diameter: 0.9,
-            trunk_diameter: 1.6,
-            // HALOT Box's columns are cones: close to 5 mm at the foot,
-            // slimming to the trunk width where the model meets it.
-            trunk_diameter_max: 5.0,
-            foot_diameter: 3.0,
+            branch_diameter: 0.85,
+            trunk_diameter: 0.85,
+            // HALOT Box's columns are cones: ~2.5 mm at the foot, slimming
+            // to the shaft width where the model meets it.
+            trunk_diameter_max: 2.5,
+            foot_diameter: 2.5,
             base: BaseConfig::default(),
             enabled: true,
         }
@@ -201,21 +201,21 @@ impl SupportConfig {
         self.foot_diameter = d.foot_diameter;
         match p {
             Preset::Light => {
-                self.tip.lower_diameter = 1.0;
-                self.tip.upper_diameter = 0.5;
-                self.branch_diameter = 0.8;
-                self.trunk_diameter = 1.4;
-                self.trunk_diameter_max = 4.2;
-                self.foot_diameter = 2.6;
+                self.tip.lower_diameter = 0.7;
+                self.tip.upper_diameter = 0.55;
+                self.branch_diameter = 0.7;
+                self.trunk_diameter = 0.7;
+                self.trunk_diameter_max = 1.8;
+                self.foot_diameter = 1.8;
             }
             Preset::Medium => {}
             Preset::Heavy => {
-                self.tip.lower_diameter = 1.4;
+                self.tip.lower_diameter = 1.1;
                 self.tip.upper_diameter = 0.8;
-                self.branch_diameter = 1.1;
-                self.trunk_diameter = 2.0;
-                self.trunk_diameter_max = 5.8;
-                self.foot_diameter = 3.6;
+                self.branch_diameter = 1.0;
+                self.trunk_diameter = 1.1;
+                self.trunk_diameter_max = 3.4;
+                self.foot_diameter = 3.4;
             }
         }
         self.preset = p;
@@ -248,7 +248,7 @@ impl SupportConfig {
         (self.tip.lower_diameter * 0.5).max(0.1)
     }
 
-    /// Trunk width for a trunk carrying `tips` tips: 1.6 -> 2.4 mm where
+    /// Trunk width for a trunk carrying `tips` tips: 0.85 -> 1.275 mm where
     /// the tips meet. The foot of a standing trunk is `trunk_diameter_max`
     /// wide instead.
     pub fn trunk_diameter_for(&self, tips: usize) -> f32 {
@@ -310,15 +310,15 @@ mod tests {
         assert_eq!(c.touch_tip_distance, Density::High.spacing());
         assert_eq!(c.overhang_angle_deg, 45.0);
         assert!(!c.overhangs_only, "the working profile leaves it unchecked");
-        assert_eq!(c.tip.upper_diameter, 0.6);
-        assert_eq!(c.tip.lower_diameter, 1.2);
+        assert_eq!(c.tip.upper_diameter, 0.65);
+        assert_eq!(c.tip.lower_diameter, 0.85);
         assert_eq!(c.tip.length, 3.0);
         assert_eq!(c.tip.contact_diameter, 0.8);
         assert_eq!(c.tip.contact_depth, 0.4);
         assert_eq!(c.branch_angle_deg, 45.0);
-        assert_eq!(c.branch_diameter, 0.9);
-        assert_eq!(c.trunk_diameter, 1.6);
-        assert_eq!(c.foot_diameter, 3.0);
+        assert_eq!(c.branch_diameter, 0.85);
+        assert_eq!(c.trunk_diameter, 0.85);
+        assert_eq!(c.foot_diameter, 2.5);
         assert_eq!(c.base.plate_thickness, 0.8);
         assert_eq!(c.base.margin, 1.0);
     }
@@ -348,9 +348,9 @@ mod tests {
         assert_eq!(c.preset, Preset::Heavy);
 
         c.apply_preset(Preset::Light);
-        assert!((c.trunk_diameter - 1.4).abs() < 1e-4);
+        assert!((c.trunk_diameter - 0.7).abs() < 1e-4);
         assert!(
-            (c.foot_diameter - 2.6).abs() < 1e-4,
+            (c.foot_diameter - 1.8).abs() < 1e-4,
             "Light must not keep Heavy's numbers"
         );
         assert_eq!(c.touch_tip_distance, spacing);
@@ -370,8 +370,8 @@ mod tests {
     #[test]
     fn a_busier_trunk_grows_towards_its_maximum() {
         let c = SupportConfig::default();
-        assert!((c.trunk_diameter_for(1) - 1.6).abs() < 1e-4);
-        assert!((c.trunk_diameter_for(100) - 2.4).abs() < 1e-4);
+        assert!((c.trunk_diameter_for(1) - 0.85).abs() < 1e-4);
+        assert!((c.trunk_diameter_for(100) - 1.275).abs() < 1e-4);
         assert!(c.trunk_diameter_for(4) > c.trunk_diameter_for(2));
     }
 

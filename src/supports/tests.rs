@@ -1608,8 +1608,8 @@ fn standing_trunks_taper_from_a_fat_foot() {
     let base = widest_near(&mesh, 0.0, 0.0);
     let top = widest_near(&mesh, 0.0, 6.0);
     assert!(
-        (base - 2.5).abs() < 0.05,
-        "the standing trunk starts {base} wide, not 2.5"
+        (base - 1.25).abs() < 0.05,
+        "the standing trunk starts {base} wide, not 1.25"
     );
     assert!(
         (top - 0.8).abs() < 0.05,
