@@ -4,6 +4,13 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+### Changed
+
+- The printer preview no longer reads half white, half grey. Top faces
+  shade like rounded surfaces — brightest in the middle, darker towards
+  the rim — and walls darken as they meet the plate, sixteen greys where
+  the flat render used four.
+
 ## [0.1.24] - 2026-11-25
 
 ### Fixed

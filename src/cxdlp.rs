@@ -337,6 +337,10 @@ const VIEW_YAW_DEG: f32 = 32.0;
 const VIEW_PITCH_DEG: f32 = 28.0;
 /// Towards the light, in plate millimetres: up, to the left, in front.
 const LIGHT: [f32; 3] = [-0.34, -0.44, 0.83];
+/// How far a top face's normal tips away from the face's centre at its
+/// rim, so a box shades like a rounded surface instead of one flat card
+/// that reads half white, half grey.
+const DOME: f32 = 0.55;
 
 /// Draw the stacked boxes with a z-buffer: each rectangle paints its top
 /// face and the four walls that hang below it, whichever wall the camera
@@ -391,12 +395,11 @@ fn render_plate(
         LIGHT[1] / light_len,
         LIGHT[2] / light_len,
     ];
-    let shade = |n: [f32; 3]| -> u16 {
-        let lit = (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]).max(0.0);
-        let g = ((0.30 + 0.70 * lit) * 31.0).round() as u16;
+    let grey = |lit: f32| -> u16 {
+        let g = ((0.30 + 0.70 * lit.clamp(0.0, 1.0)) * 31.0).round() as u16;
         (g << 11) | ((g * 2) << 5) | g
     };
-    let top = shade([0.0, 0.0, 1.0]);
+    let cam: [f32; 4] = [cy, sy, cp, sp];
 
     let mut zbuf = vec![f32::MIN; size * size];
     let mut out = vec![0u16; size * size];
@@ -411,14 +414,29 @@ fn render_plate(
             [r[0], r[3], zf],
         ];
         let corners: Vec<[f32; 3]> = c.iter().map(|p| project(*p)).collect();
-        // Top face.
+        // Top face: the normal tips away from the face centre, brightest in
+        // the middle and darker towards the rim, the way a rounded surface
+        // would catch the same light.
+        let centre = [(r[0] + r[2]) * 0.5, (r[1] + r[3]) * 0.5];
+        let radii = [
+            ((r[2] - r[0]) * 0.5).max(0.5),
+            ((r[3] - r[1]) * 0.5).max(0.5),
+        ];
+        let dome = |p: [f32; 3]| -> u16 {
+            let nx = (p[0] - centre[0]) / radii[0] * DOME;
+            let ny = (p[1] - centre[1]) / radii[1] * DOME;
+            let len = (nx * nx + ny * ny + 1.0).sqrt();
+            grey((nx * light[0] + ny * light[1] + light[2]) / len)
+        };
         tri(
-            &mut zbuf, &mut out, size, scale, ox, oy, top, corners[0], corners[1], corners[2],
+            &mut zbuf, &mut out, size, scale, ox, oy, dome, cam, corners[0], corners[1], corners[2],
         );
         tri(
-            &mut zbuf, &mut out, size, scale, ox, oy, top, corners[0], corners[2], corners[3],
+            &mut zbuf, &mut out, size, scale, ox, oy, dome, cam, corners[0], corners[2], corners[3],
         );
-        // Four walls: each edge of the top face, dropped to the floor.
+        // Four walls: each edge of the top face, dropped to the floor. The
+        // wall darkens as it nears the plate, the way surfaces meet in
+        // shadow.
         let below: Vec<[f32; 3]> = corners
             .iter()
             .map(|p| [p[0], p[1] - drop * cp, p[2] - drop * sp])
@@ -432,7 +450,11 @@ fn render_plate(
                 2 => [0.0, 1.0, 0.0],  // y1 edge
                 _ => [-1.0, 0.0, 0.0], // x0 edge
             };
-            let colour = shade(n);
+            let flat = (n[0] * light[0] + n[1] * light[1]).max(0.0);
+            let wall = move |p: [f32; 3]| -> u16 {
+                let frac = ((zf - p[2]) / drop).clamp(0.0, 1.0);
+                grey(flat * (1.0 - 0.35 * frac))
+            };
             tri(
                 &mut zbuf,
                 &mut out,
@@ -440,13 +462,15 @@ fn render_plate(
                 scale,
                 ox,
                 oy,
-                colour,
+                wall,
+                cam,
                 corners[k],
                 corners[k2],
                 below[k2],
             );
             tri(
-                &mut zbuf, &mut out, size, scale, ox, oy, colour, corners[k], below[k2], below[k],
+                &mut zbuf, &mut out, size, scale, ox, oy, wall, cam, corners[k], below[k2],
+                below[k],
             );
         }
     }
@@ -454,7 +478,9 @@ fn render_plate(
 }
 
 /// Fill one projected triangle into the z-buffered image: screen-space
-/// edges, depth interpolated flat, first-come wins ties.
+/// edges, depth interpolated per pixel, first-come wins ties. A pixel
+/// that survives the depth test asks `colour` where in the plate it sits,
+/// so a face can shade differently across itself.
 #[allow(clippy::too_many_arguments)]
 fn tri(
     zbuf: &mut [f32],
@@ -463,7 +489,8 @@ fn tri(
     scale: f32,
     ox: f32,
     oy: f32,
-    colour: u16,
+    colour: impl Fn([f32; 3]) -> u16,
+    cam: [f32; 4],
     a: [f32; 3],
     b: [f32; 3],
     c: [f32; 3],
@@ -505,7 +532,17 @@ fn tri(
             let idx = py as usize * size + px as usize;
             if t > zbuf[idx] + 1e-6 {
                 zbuf[idx] = t;
-                out[idx] = colour;
+                // Unrotate the camera: screen x, screen y and depth back
+                // to plate millimetres, so `colour` knows its address.
+                let u = (fx - ox) / scale;
+                let sy = (oy - fy) / scale;
+                let v = t * cam[2] - sy * cam[3];
+                let p = [
+                    u * cam[0] + v * cam[1],
+                    v * cam[0] - u * cam[1],
+                    sy * cam[2] + t * cam[3],
+                ];
+                out[idx] = colour(p);
             }
         }
     }
@@ -1268,9 +1305,9 @@ mod tests {
         let (small, large, bounds) = thumbnail(&sl, printer, PREVIEW_SMALL, PREVIEW_LARGE);
         assert_eq!(small.len(), PREVIEW_SMALL * PREVIEW_SMALL);
         assert_eq!(large.len(), PREVIEW_LARGE * PREVIEW_LARGE);
-        // A corner view of a block is a shaded block on a black field, not
-        // a flat silhouette: at least three greys — the lit wall, the top
-        // face, the dark wall — and a good part of the frame lit.
+        // A corner view of a block is a rounded, shaded block on a black
+        // field, not a flat silhouette: the dome alone spans several greys,
+        // and the walls add their own.
         let lit = large.iter().filter(|p| **p != 0).count();
         assert!(
             lit > 3000,
@@ -1279,7 +1316,7 @@ mod tests {
         let mut shades: Vec<u16> = large.iter().copied().filter(|p| *p != 0).collect();
         shades.sort_unstable();
         shades.dedup();
-        assert!(shades.len() >= 3, "want shaded faces, got {shades:?}");
+        assert!(shades.len() >= 6, "want shaded faces, got {shades:?}");
         for p in &large {
             let (r, g, b) = (*p >> 11, (*p >> 5) & 0x3F, *p & 0x1F);
             assert_eq!(r, b, "preview pixels stay grey");
