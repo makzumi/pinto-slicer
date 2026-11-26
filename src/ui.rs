@@ -1805,6 +1805,7 @@ impl App {
             2,
         );
         on_off(&mut out, "Base plate", a.base.enabled, b.base.enabled);
+        on_off(&mut out, "Raft sheets", a.base.raft, b.base.raft);
         num(
             &mut out,
             "Base thickness",
@@ -4299,17 +4300,39 @@ impl App {
                                 .step_by(0.1),
                         )
                         .changed();
+                    changed |= ui
+                        .checkbox(
+                            &mut self.settings.supports.base.raft,
+                            egui::RichText::new("Raft sheets").size(12.5),
+                        )
+                        .on_hover_text(
+                            "Weld each connected group of feet into one monolithic sheet, \
+                             like the reference slicer's raft (about six sheets under a \
+                             whole job). Off: split dense clusters into many small pads \
+                             so no single peel has a whole-model sheet to lift.",
+                        )
+                        .changed();
                 });
                 let plates = self.support.plates.len();
                 ui.label(
                     egui::RichText::new(if self.settings.supports.base.enabled {
-                        format!(
-                            "{plates} pad{} under {} feet. Pads merge only where feet \
-                             touch, none grows past a 30 mm square, and every pad \
-                             keeps its full-thickness rim.",
-                            if plates == 1 { "" } else { "s" },
-                            self.support.feet.len()
-                        )
+                        if self.settings.supports.base.raft {
+                            format!(
+                                "{plates} sheet{} under {} feet. Each connected group \
+                                 welds into one raft sheet, and every pad keeps its \
+                                 full-thickness rim.",
+                                if plates == 1 { "" } else { "s" },
+                                self.support.feet.len()
+                            )
+                        } else {
+                            format!(
+                                "{plates} pad{} under {} feet. Pads merge only where feet \
+                                 touch, none grows past a 30 mm square, and every pad \
+                                 keeps its full-thickness rim.",
+                                if plates == 1 { "" } else { "s" },
+                                self.support.feet.len()
+                            )
+                        }
                     } else {
                         "No pads: the feet stand on the platform on their own.".to_string()
                     })

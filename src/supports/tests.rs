@@ -1341,13 +1341,13 @@ fn a_dense_ring_of_feet_keeps_its_pads_apart() {
 
 #[test]
 fn a_dense_forest_breaks_its_sheet_into_capped_pads() {
-    // A 96 x 36 mm forest of thick feet at tip distance is one connected
-    // cluster, but no single pad may become a sheet: past the area cap the
-    // cluster is cut along its long axis, with a seam between the halves,
-    // so one lifting corner cannot drag the whole base off the plate. The
-    // 25 x 10 grid also puts the middle of the cluster inside a column of
-    // feet that share one coordinate: the cut must step between columns,
-    // never through one.
+    // With `raft` off, a 96 x 36 mm forest of thick feet at tip distance is
+    // one connected cluster, but no single pad may become a sheet: past the
+    // area cap the cluster is cut along its long axis, with a seam between
+    // the halves, so one lifting corner cannot drag the whole base off the
+    // plate. The 25 x 10 grid also puts the middle of the cluster inside a
+    // column of feet that share one coordinate: the cut must step between
+    // columns, never through one.
     let foot = |id: usize, x: f32, y: f32| Foot {
         id,
         pos: Vec3::new(x, y, 0.0),
@@ -1355,7 +1355,10 @@ fn a_dense_forest_breaks_its_sheet_into_capped_pads() {
         trunk_id: id,
         model_id: 0,
     };
-    let cfg = crate::supports::config::BaseConfig::default();
+    let cfg = crate::supports::config::BaseConfig {
+        raft: false,
+        ..crate::supports::config::BaseConfig::default()
+    };
     let mut feet = Vec::new();
     for gy in 0..10usize {
         for gx in 0..25usize {
@@ -1423,6 +1426,47 @@ fn a_dense_forest_breaks_its_sheet_into_capped_pads() {
         "the cap cuts the sheet into {} pad(s) that keep a seam",
         plates.len()
     );
+}
+
+#[test]
+fn raft_mode_welds_a_forest_into_one_sheet() {
+    // The reference slicer prints a few monolithic sheets, not dozens of
+    // little pads: with `raft` on (the default) the area cap is skipped and
+    // one connected forest gets one hull-shaped pad.
+    let foot = |id: usize, x: f32, y: f32| Foot {
+        id,
+        pos: Vec3::new(x, y, 0.0),
+        diameter: 3.0,
+        trunk_id: id,
+        model_id: 0,
+    };
+    let cfg = crate::supports::config::BaseConfig::default();
+    let mut feet = Vec::new();
+    for gy in 0..10usize {
+        for gx in 0..25usize {
+            feet.push(foot(gy * 25 + gx, gx as f32 * 4.0, gy as f32 * 4.0));
+        }
+    }
+    let plates = base::plates_for(&feet, &cfg);
+    assert_eq!(
+        plates.len(),
+        1,
+        "raft mode welds a forest into one sheet, got {}",
+        plates.len()
+    );
+    let area = |p: &Plate| {
+        p.poly
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let b = p.poly[(i + 1) % p.poly.len()];
+                a.0 * b.1 - b.0 * a.1
+            })
+            .sum::<f32>()
+            .abs()
+            * 0.5
+    };
+    assert!(area(&plates[0]) > 900.0, "the raft sheet is not area-capped");
 }
 
 #[test]

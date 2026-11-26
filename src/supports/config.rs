@@ -55,6 +55,16 @@ pub struct BaseConfig {
     pub plate_thickness: f32,
     pub margin: f32,
     pub chamfer_deg: f32,
+    /// One monolithic sheet per connected group of feet (the reference
+    /// slicer's raft-like pads) instead of splitting into many small capped
+    /// pads. The reference prints about six sheets under a whole job; the
+    /// splitter produces dozens of little pads that peel off one by one.
+    #[serde(default = "yes")]
+    pub raft: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for BaseConfig {
@@ -64,6 +74,7 @@ impl Default for BaseConfig {
             plate_thickness: 0.8,
             margin: 1.0,
             chamfer_deg: 45.0,
+            raft: true,
         }
     }
 }
@@ -271,7 +282,7 @@ impl SupportConfig {
                 "  \"trunk_diameter\": {},\n",
                 "  \"trunk_diameter_max\": {},\n",
                 "  \"foot_diameter\": {},\n",
-                "  \"base\": {{ \"enabled\": {}, \"plate_thickness\": {}, \"margin\": {}, \"chamfer_deg\": {} }},\n",
+                "  \"base\": {{ \"enabled\": {}, \"plate_thickness\": {}, \"margin\": {}, \"chamfer_deg\": {}, \"raft\": {} }},\n",
                 "  \"enabled\": {}\n",
                 "}}"
             ),
@@ -294,6 +305,7 @@ impl SupportConfig {
             self.base.plate_thickness,
             self.base.margin,
             self.base.chamfer_deg,
+            self.base.raft,
             self.enabled
         )
     }
@@ -381,8 +393,21 @@ mod tests {
         let text = c.to_json();
         assert!(text.contains("\"touch_tip_distance\": 4"));
         assert!(text.contains("\"plate_thickness\": 0.8"));
+        assert!(text.contains("\"raft\": true"));
         // The serde derives exist, so any serde format can save and load it.
         fn serde_ready<T: serde::Serialize + serde::de::DeserializeOwned>() {}
         serde_ready::<SupportConfig>();
+    }
+
+    #[test]
+    fn an_old_project_without_the_raft_key_loads_as_raft_sheets() {
+        // Projects written before the raft switch carry no `raft` key; they
+        // must still load, and default to the new sheet behavior rather than
+        // silently turning the cap back on.
+        let base: BaseConfig = serde_json::from_str(
+            "{\"enabled\": true, \"plate_thickness\": 0.8, \"margin\": 1.0, \"chamfer_deg\": 45.0}",
+        )
+        .expect("a pre-raft base loads");
+        assert!(base.raft, "a missing raft key means raft sheets on");
     }
 }
