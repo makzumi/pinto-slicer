@@ -111,15 +111,16 @@ pub struct Brace {
     pub model_id: usize,
 }
 
-/// A chamfered plate under a group of feet.
+/// A pad under a group of feet that touch.
 #[derive(Clone, Debug)]
 pub struct Plate {
-    /// The model whose feet this base plate carries.
+    /// The model whose feet this pad carries.
     pub model_id: usize,
     /// Convex outline, counter-clockwise.
     pub poly: Vec<(f32, f32)>,
     pub thickness: f32,
-    /// Vertical rise and horizontal run of the top-edge chamfer.
+    /// How much lower the middle of the pad sits than its rim, and the
+    /// horizontal run of that slope — the lip that keeps the edge thick.
     pub chamfer: f32,
     pub chamfer_run: f32,
 }
@@ -373,14 +374,14 @@ impl SupportModel {
             s.trunk_max
         ));
         if self.plates.is_empty() {
-            out.push_str("no base plate (switched off)\n");
+            out.push_str("no base pads (switched off)\n");
         } else {
             out.push_str(&format!(
-                "base plate {} under the feet\n",
+                "base pads {} under the feet\n",
                 if self.plates.len() == 1 {
-                    "one piece"
+                    "one pad"
                 } else {
-                    "in pieces"
+                    "in many small ones"
                 }
             ));
         }

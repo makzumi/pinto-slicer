@@ -150,8 +150,10 @@ pub fn foot(f: &Foot) -> Mesh {
     )
 }
 
-/// A plate under the feet: straight sides and the configured chamfer along
-/// the top edge.
+/// A pad under a group of feet: straight sides, a rim that keeps the
+/// pad's full thickness right to the edge, and a middle that sits
+/// `chamfer` lower — a lip around the rim, so the first peel never grabs
+/// a feathered edge.
 pub fn plate(p: &Plate) -> Mesh {
     let mut m = Mesh::default();
     let n = p.poly.len();
@@ -163,8 +165,10 @@ pub fn plate(p: &Plate) -> Mesh {
     let inner = inset(&p.poly, p.chamfer_run.max(0.0));
     let has_inner = inner.len() == n;
     let rings = if has_inner { 3 } else { 2 };
+    // The rim ring stands at the pad's full height; the middle sits
+    // `chamfer` lower, so the edge is the thickest part of the pad.
     let zs = if has_inner {
-        [0.0, t - c, t]
+        [0.0, t, t - c]
     } else {
         [0.0, t, t]
     };
@@ -195,7 +199,7 @@ pub fn plate(p: &Plate) -> Mesh {
     let top_ring = (rings - 1) * n;
     let ct = m.verts.len() as u32;
     let (cx, cy) = centroid(if has_inner { &inner } else { &p.poly });
-    m.verts.push(Vec3::new(cx, cy, t));
+    m.verts.push(Vec3::new(cx, cy, zs[rings - 1]));
     for k in 0..n {
         let j = (k + 1) % n;
         m.tris.push([cb, j as u32, k as u32]);

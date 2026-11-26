@@ -1823,7 +1823,7 @@ impl App {
         );
         num(
             &mut out,
-            "Base chamfer",
+            "Edge lip",
             "°",
             a.base.chamfer_deg,
             b.base.chamfer_deg,
@@ -4280,8 +4280,15 @@ impl App {
                                 &mut self.settings.supports.base.chamfer_deg,
                                 15.0..=75.0,
                             )
-                            .text("chamfer")
+                            .text("edge lip")
                             .suffix("°"),
+                        )
+                        .on_hover_text(
+                            "How much thicker the pad's rim stands than its middle. The \
+                             edge keeps the pad's full height; the top slopes down \
+                             toward the middle by this angle, the way the reference \
+                             slicer's pads carry a lip so the first peel never \
+                             grabs a feathered edge.",
                         )
                         .changed();
                     changed |= ui
@@ -4297,13 +4304,14 @@ impl App {
                 ui.label(
                     egui::RichText::new(if self.settings.supports.base.enabled {
                         format!(
-                            "{plates} plate{} under {} feet. One plate is used where it would \
-                             be mostly covered, otherwise one per group of feet.",
+                            "{plates} pad{} under {} feet. Pads merge only where feet \
+                             touch, none grows past a 30 mm square, and every pad \
+                             keeps its full-thickness rim.",
                             if plates == 1 { "" } else { "s" },
                             self.support.feet.len()
                         )
                     } else {
-                        "No base plate: the feet stand on the platform on their own.".to_string()
+                        "No pads: the feet stand on the platform on their own.".to_string()
                     })
                     .size(10.5)
                     .color(MUTED),

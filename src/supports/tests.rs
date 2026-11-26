@@ -1314,6 +1314,178 @@ fn close_columns_get_a_plain_zig_zag_wide_ones_get_the_cross() {
 
 /// The lattice must route around a column in its way, never through it.
 #[test]
+fn a_dense_ring_of_feet_keeps_its_pads_apart() {
+    // A forest at tip distance is dense, but every pad must stay small: one
+    // sheet under the whole model peels off the film as a single suction
+    // cup. Only feet whose margined discs actually touch may merge.
+    let foot = |id: usize, x: f32| Foot {
+        id,
+        pos: Vec3::new(x, 0.0, 0.0),
+        diameter: 1.3,
+        trunk_id: id,
+        model_id: 0,
+    };
+    let cfg = crate::supports::config::BaseConfig::default();
+    let dense: Vec<Foot> = (0..8).map(|i| foot(i, i as f32 * 4.0)).collect();
+    let plates = base::plates_for(&dense, &cfg);
+    assert_eq!(
+        plates.len(),
+        8,
+        "feet 4 mm apart keep their own pads, got {} plate(s)",
+        plates.len()
+    );
+    let touching: Vec<Foot> = vec![foot(0, 0.0), foot(1, 2.5)];
+    let plates = base::plates_for(&touching, &cfg);
+    assert_eq!(plates.len(), 1, "feet whose pads overlap weld into one");
+}
+
+#[test]
+fn a_dense_forest_breaks_its_sheet_into_capped_pads() {
+    // A 96 x 36 mm forest of thick feet at tip distance is one connected
+    // cluster, but no single pad may become a sheet: past the area cap the
+    // cluster is cut along its long axis, with a seam between the halves,
+    // so one lifting corner cannot drag the whole base off the plate. The
+    // 25 x 10 grid also puts the middle of the cluster inside a column of
+    // feet that share one coordinate: the cut must step between columns,
+    // never through one.
+    let foot = |id: usize, x: f32, y: f32| Foot {
+        id,
+        pos: Vec3::new(x, y, 0.0),
+        diameter: 3.0,
+        trunk_id: id,
+        model_id: 0,
+    };
+    let cfg = crate::supports::config::BaseConfig::default();
+    let mut feet = Vec::new();
+    for gy in 0..10usize {
+        for gx in 0..25usize {
+            feet.push(foot(gy * 25 + gx, gx as f32 * 4.0, gy as f32 * 4.0));
+        }
+    }
+    let plates = base::plates_for(&feet, &cfg);
+    let area = |p: &Plate| {
+        p.poly
+            .iter()
+            .enumerate()
+            .map(|(i, a)| {
+                let b = p.poly[(i + 1) % p.poly.len()];
+                a.0 * b.1 - b.0 * a.1
+            })
+            .sum::<f32>()
+            .abs()
+            * 0.5
+    };
+    for p in &plates {
+        assert!(
+            area(p) <= 900.0,
+            "every pad stays under the cap, got {:.0} mm2",
+            area(p)
+        );
+    }
+    // And no foot is left standing off its pad: a seam may trim a boundary
+    // disc flat, but every foot keeps its centre on solid base.
+    let contains = |poly: &[(f32, f32)], x: f32, y: f32| {
+        let mut inside = false;
+        for i in 0..poly.len() {
+            let a = poly[i];
+            let b = poly[(i + 1) % poly.len()];
+            if (a.1 > y) != (b.1 > y) && x < (b.0 - a.0) * (y - a.1) / (b.1 - a.1) + a.0 {
+                inside = !inside;
+            }
+        }
+        inside
+    };
+    for f in &feet {
+        assert!(
+            plates.iter().any(|p| contains(&p.poly, f.pos.x, f.pos.y)),
+            "foot {} keeps its pad after the seam cut",
+            f.id
+        );
+    }
+    let bounds = |p: &Plate| {
+        p.poly.iter().fold(
+            (f32::MAX, f32::MIN, f32::MAX, f32::MIN),
+            |(x0, x1, y0, y1), q| (x0.min(q.0), x1.max(q.0), y0.min(q.1), y1.max(q.1)),
+        )
+    };
+    let seam = plates.iter().any(|a| {
+        let (ax0, ax1, ay0, ay1) = bounds(a);
+        plates.iter().any(|b| {
+            if std::ptr::eq(a, b) {
+                return false;
+            }
+            let (bx0, bx1, by0, by1) = bounds(b);
+            ay1 >= by0 && by1 >= ay0 && ((bx0 - ax1).max(ax0 - bx1) >= 0.55)
+        })
+    });
+    assert!(
+        plates.len() >= 2 && seam,
+        "the cap cuts the sheet into {} pad(s) that keep a seam",
+        plates.len()
+    );
+}
+
+#[test]
+fn a_small_dense_cluster_stays_one_pad() {
+    // The cap does not shred small clusters: a 13 x 13 mm block of feet
+    // welds into one pad, like the reference slicer's own small bases.
+    let foot = |id: usize, x: f32, y: f32| Foot {
+        id,
+        pos: Vec3::new(x, y, 0.0),
+        diameter: 3.0,
+        trunk_id: id,
+        model_id: 0,
+    };
+    let cfg = crate::supports::config::BaseConfig::default();
+    let feet: Vec<Foot> = (0..9usize)
+        .map(|i| foot(i, (i % 3) as f32 * 4.0, (i / 3) as f32 * 4.0))
+        .collect();
+    let plates = base::plates_for(&feet, &cfg);
+    assert_eq!(plates.len(), 1, "a small dense cluster is one pad");
+}
+
+#[test]
+fn a_pad_keeps_its_full_thickness_rim() {
+    // The rim carries the pad's full height; only the middle sits lower, so
+    // the first peel never grabs a feathered edge.
+    let plate = Plate {
+        model_id: 0,
+        poly: vec![(-5.0, -5.0), (5.0, -5.0), (5.0, 5.0), (-5.0, 5.0)],
+        thickness: 0.8,
+        chamfer: 0.48,
+        chamfer_run: 0.48,
+    };
+    let mesh = meshgen::plate(&plate);
+    let mut edges: std::collections::HashMap<(u32, u32), i32> = std::collections::HashMap::new();
+    for t in &mesh.tris {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let key = if a < b { (a, b) } else { (b, a) };
+            *edges.entry(key).or_insert(0) += 1;
+        }
+    }
+    let open = edges.values().filter(|c| **c % 2 != 0).count();
+    assert_eq!(open, 0, "the pad is closed");
+    let rim: Vec<_> = mesh
+        .verts
+        .iter()
+        .filter(|v| (v.z - 0.8).abs() < 1e-3)
+        .collect();
+    assert_eq!(rim.len(), 4, "the four rim corners stand at full height");
+    let low: Vec<_> = mesh
+        .verts
+        .iter()
+        .filter(|v| (v.z - (0.8 - 0.48)).abs() < 1e-3)
+        .collect();
+    assert_eq!(
+        low.len(),
+        5,
+        "the middle (four inner corners and the cap centre) sits lower"
+    );
+    let max = mesh.verts.iter().map(|v| v.z).fold(f32::MIN, f32::max);
+    assert!((max - 0.8).abs() < 1e-4, "nothing stands above the rim");
+}
+
+#[test]
 fn a_brace_never_passes_through_a_third_column() {
     let trunk = |x: f32| Trunk {
         id: 0,
@@ -1341,6 +1513,56 @@ fn a_brace_never_passes_through_a_third_column() {
             span < 7.0,
             "a brace spanning {span} mm would run straight through the \
              middle column"
+        );
+    }
+}
+
+#[test]
+fn scratch_orphans() {
+    let foot = |id: usize, x: f32, y: f32| Foot {
+        id,
+        pos: Vec3::new(x, y, 0.0),
+        diameter: 3.0,
+        trunk_id: id,
+        model_id: 0,
+    };
+    let cfg = crate::supports::config::BaseConfig::default();
+    let mut feet = Vec::new();
+    for gy in 0..10usize {
+        for gx in 0..50usize {
+            feet.push(foot(gy * 50 + gx, gx as f32 * 4.0, gy as f32 * 4.0));
+        }
+    }
+    let plates = base::plates_for(&feet, &cfg);
+    let contains = |poly: &Vec<(f32, f32)>, x: f32, y: f32| {
+        let mut inside = false;
+        for i in 0..poly.len() {
+            let a = poly[i];
+            let b = poly[(i + 1) % poly.len()];
+            if (a.1 > y) != (b.1 > y) && x < (b.0 - a.0) * (y - a.1) / (b.1 - a.1) + a.0 {
+                inside = !inside;
+            }
+        }
+        inside
+    };
+    let orphans: Vec<&Foot> = feet
+        .iter()
+        .filter(|f| !plates.iter().any(|p| contains(&p.poly, f.pos.x, f.pos.y)))
+        .collect();
+    println!("orphans: {}", orphans.len());
+    for f in orphans.iter().take(12) {
+        println!("  orphan id {} at ({:.1}, {:.1})", f.id, f.pos.x, f.pos.y);
+    }
+    for (i, p) in plates.iter().enumerate() {
+        let (lo, hi) = base::plate_bounds(p);
+        println!(
+            "  pad {}: x {:.1}..{:.1} y {:.1}..{:.1} ({} verts)",
+            i,
+            lo.x,
+            hi.x,
+            lo.y,
+            hi.y,
+            p.poly.len()
         );
     }
 }

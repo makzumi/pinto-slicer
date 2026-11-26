@@ -10,6 +10,14 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
   shade like rounded surfaces — brightest in the middle, darker towards
   the rim — and walls darken as they meet the plate, sixteen greys where
   the flat render used four.
+- No single support pad may become a sheet. Pads merge only where their
+  feet actually touch, none grows past the largest pad the reference
+  slicer's own jobs carry, and a pad past the cap is cut along its long
+  axis with a drainable seam between the halves — a peeling corner can
+  no longer drag a whole model's base off the plate. The pad profile
+  also turned its chamfer inside out: the rim keeps the pad's full
+  thickness and the middle sits lower, so the first peel grabs a lip,
+  never a feathered edge.
 
 ## [0.1.24] - 2026-11-25
 
