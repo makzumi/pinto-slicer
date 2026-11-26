@@ -4,6 +4,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.26] - 2026-11-25
+
 ### Changed
 
 - Standing trunks are cones now, not sticks: about 5 mm wide at the
@@ -306,7 +308,8 @@ First public release.
 - The AppImage bundles `libxkbcommon`, `libxkbcommon-x11`, and `libxcb-xkb`. winit loads them with `dlopen()`, so systems that do not ship `libxkbcommon-x11` panicked at startup with `Library libxkbcommon-x11.so could not be loaded.`.
 - The release workflow installs the X11/xkb libraries needed for packaging and smoke tests instead of relying on whatever the runner image happens to include.
 
-[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.25...HEAD
+[Unreleased]: https://github.com/makzumi/pinto-slicer/compare/v0.1.26...HEAD
+[0.1.26]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.26
 [0.1.25]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.25
 [0.1.24]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.24
 [0.1.23]: https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.23

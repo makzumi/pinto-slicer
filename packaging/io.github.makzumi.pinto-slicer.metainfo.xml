@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.25/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.26/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,16 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.26" date="2026-11-25">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.26</url>
+      <description>
+        <p>Support columns now stand the way the printer's own slicer shapes them: cones, fat at the platform, slim where they meet the model.</p>
+        <ul>
+          <li>Standing trunks are about 5 mm wide at the foot, four times stiffer where columns are longest.</li>
+          <li>Trunks held from the model stay straight sticks, and the panel previews show the new shape.</li>
         </ul>
       </description>
     </release>
