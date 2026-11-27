@@ -336,4 +336,47 @@ mod tests {
         assert_eq!(clipped.len(), 4);
         assert!(clipped.iter().all(|p| p.z >= 5.0 - 1e-5));
     }
+    #[test]
+    fn synthetic_support_fan_covers_the_reference_l529_mask() {
+        // A triangular support wall whose projection is the L529 reference
+        // fan.  This isolates the area projection + exact LUT from the
+        // support-generation differences: every reference bead must be
+        // covered, even if the synthetic wall adds a few boundary beads.
+        let z = 530.0;
+        let verts = vec![
+            Vec3::new(0.0, 5.42, z),
+            Vec3::new(-139.56, -53.84, z),
+            Vec3::new(-116.32, -68.8, z),
+            Vec3::new(116.32, -68.8, z),
+            Vec3::new(139.56, -53.84, z),
+        ];
+        let fan = Mesh {
+            verts,
+            tris: vec![[0, 1, 2], [0, 2, 3], [0, 3, 4]],
+            name: "synthetic support fan".into(),
+        };
+        let (range, bits) = build_halot_x1_lut();
+        let mask = compute_halot_x1_area_mask(
+            std::slice::from_ref(&fan),
+            529.0,
+            AreaTransform::from_printer(&printer()),
+            &range,
+            &bits,
+        );
+        // Stored 68-byte mask for reference layer 529.
+        let reference_hex = "0000000000000000000000000000000000000000000000000000000000007000\
+                             000fc00001ff00003ffc0007fff000ffffc01fffff03fffffc3fffffe1fffffe07ffffc0";
+        let mut reference = [0u8; HALOT_X1_MASK_BYTES];
+        for (i, byte) in reference.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&reference_hex[2 * i..2 * i + 2], 16).unwrap();
+        }
+        let inter: u32 = mask
+            .iter()
+            .zip(reference.iter())
+            .map(|(a, b)| (a & b).count_ones())
+            .sum();
+        assert_eq!(inter, 178, "the fan must cover every L529 reference bead");
+        assert!(count(&mask) >= 178);
+    }
+
 }
