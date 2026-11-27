@@ -316,6 +316,14 @@ mod tests {
     }
 
     #[test]
+    fn slice_result_retains_the_source_meshes() {
+        let block = sample_block();
+        let sliced = crate::slicer::slice(std::slice::from_ref(&block), 0.5);
+        assert_eq!(sliced.area_meshes.len(), 1);
+        assert!(!sliced.area_meshes[0].tris.is_empty());
+    }
+
+    #[test]
     fn a_clipped_triangle_has_the_expected_area() {
         // A triangle crossing the clip plane becomes a trapezoid; its
         // projection is non-empty at the layer and empty above its top.

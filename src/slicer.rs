@@ -7,6 +7,8 @@
 //! the overlap stays solid. To make non-zero work, every cross-section segment
 //! is stored pointing the same way round the solid (see `cross_triangle`).
 
+use std::sync::Arc;
+
 use crate::mesh::Mesh;
 
 const MAX_LAYERS: usize = 20000;
@@ -28,6 +30,10 @@ pub struct SliceResult {
     pub layers: Vec<Layer>,
     pub layer_height: f32,
     pub height: f32,
+    /// The meshes this result was sliced from.  The HALOT area-part mask is
+    /// derived from the model + support geometry above each layer, so the
+    /// writer needs the 3D source, not just the 2D segments.
+    pub area_meshes: Arc<Vec<Mesh>>,
 }
 
 impl SliceResult {
@@ -59,6 +65,7 @@ pub fn slice(meshes: &[Mesh], layer_height: f32) -> SliceResult {
             layers: Vec::new(),
             layer_height: h,
             height: 0.0,
+            area_meshes: Arc::new(meshes.to_vec()),
         };
     }
     let count = ((top / h).ceil() as usize).clamp(1, MAX_LAYERS);
@@ -78,6 +85,7 @@ pub fn slice(meshes: &[Mesh], layer_height: f32) -> SliceResult {
         layers,
         layer_height: h,
         height: top,
+        area_meshes: Arc::new(meshes.to_vec()),
     }
 }
 

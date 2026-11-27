@@ -1319,6 +1319,7 @@ mod tests {
             layers: vec![source.layers[0].clone()],
             layer_height: 0.5,
             height: 0.5,
+            area_meshes: source.area_meshes.clone(),
         };
         let printer = &default_printers()[0];
         let path = std::env::temp_dir().join("resin_slicer_native_x1.cxdlpv4");
