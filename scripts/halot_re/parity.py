@@ -354,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--model", choices=("lit", "hull", "cone", "hybrid", "all"),
                     default="lit", help="'all' compares lit/hull/cone/hybrid")
     ap.add_argument("--bit-order", choices=("msb", "lsb"), default="msb")
+    ap.add_argument("--flip", choices=("none", "x", "y", "xy"), default="none",
+                    help="flip the decoded image before applying the model")
     ap.add_argument("--csv", help="write per-layer results to this CSV")
     args = ap.parse_args(argv)
 
@@ -376,6 +378,10 @@ def main(argv: list[str] | None = None) -> int:
     rows = []
     for idx in layers:
         base = load_layer_pairs(data, hdr, idx)
+        if args.flip in ("x", "xy"):
+            base = base[:, ::-1]
+        if args.flip in ("y", "xy"):
+            base = base[::-1, :]
         ref = stored_mask(data, hdr, idx)
         bitmaps = model_bitmaps(base, models, centre=(COLS / 2, ROWS / 2))
         if all_mode:
