@@ -147,17 +147,15 @@ impl NavCube {
             .fold(66.0_f32, |radius, p| {
                 radius.max((p - centre).length() + 4.0)
             });
-        // The house sits just under the cube, centred on it, so the two read
-        // as one widget rather than a cube with a stray button.
-        let mut home = Rect::from_center_size(
-            centre + Vec2::new(0.0, hit_radius + 15.0),
-            Vec2::splat(26.0),
+        // Home button pinned on the cube's top-left corner, like a badge
+        // overlapping the cube. Anchored to the cube centre — which is static
+        // in the viewport — with a fixed offset, so it never drifts while
+        // the cube rotates.
+        let home_size = 26.0_f32;
+        let home = Rect::from_center_size(
+            centre + Vec2::new(-48.0, -48.0),
+            Vec2::splat(home_size),
         );
-        // A short window must still carry the house: it lifts rather than
-        // hanging off the bottom edge.
-        if home.bottom() > viewport.bottom() - 8.0 {
-            home = home.translate(Vec2::new(0.0, viewport.bottom() - 8.0 - home.bottom()));
-        }
         Self {
             centre,
             faces,
@@ -222,20 +220,8 @@ impl NavCube {
         // A per-face homography keeps the glyph vertices coplanar as cube
         // edges converge, instead of floating screen-upright over the view.
         let over_home = self.home_hit(pointer);
-        painter.rect_filled(
-            self.home,
-            egui::Rounding::same(8.0),
-            if over_home {
-                Color32::from_rgb(48, 79, 124)
-            } else {
-                Color32::from_rgb(42, 46, 54)
-            },
-        );
-        painter.rect_stroke(
-            self.home,
-            egui::Rounding::same(8.0),
-            Stroke::new(1.0_f32, Color32::from_rgb(76, 85, 99)),
-        );
+        // No background box: the bare house glyph floats on the cube's corner,
+        // brightening on hover. The full rect stays the hit area.
         crate::icons::paint(
             painter,
             self.home.shrink(6.0),
