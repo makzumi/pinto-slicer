@@ -2710,6 +2710,7 @@ dependencies = [
  "egui",
  "egui-phosphor",
  "egui-wgpu",
+ "flate2",
  "image",
  "msla_format",
  "pollster 0.3.0",

@@ -27,6 +27,56 @@ const N_ROWS: usize = 19;
 ///   gi = row * EBP + col_band
 ///   bits[] contains bead indices (0..541) whose hexagons overlap the cell
 pub fn build_halot_x1_lut() -> (Vec<u32>, Vec<u32>) {
+    if let Some(lut) = build_exact_lut() {
+        return lut;
+    }
+    build_geometric_lut()
+}
+
+/// Exact bead subzone LUT dumped from HALOT BOX's `ensureBeadLut`.
+/// Stored as a 29 KB zlib blob; counts are u8, bead ids are u16.
+fn build_exact_lut() -> Option<(Vec<u32>, Vec<u32>)> {
+    use std::io::Read;
+    const EXACT_LUT_Z: &[u8] = include_bytes!("../assets/halot_x1_lut.z");
+    let mut raw = Vec::new();
+    flate2::read::ZlibDecoder::new(EXACT_LUT_Z)
+        .read_to_end(&mut raw)
+        .ok()?;
+    if raw.len() < 16 || &raw[0..4] != b"HX1L" {
+        return None;
+    }
+    let u32_at = |o: usize| -> Option<usize> {
+        Some(u32::from_le_bytes(raw.get(o..o + 4)?.try_into().ok()?) as usize)
+    };
+    if u32_at(4)? != 1 {
+        return None;
+    }
+    let n_cells = u32_at(8)?;
+    let n_bits = u32_at(12)?;
+    if n_cells != HALOT_X1_EBP * HALOT_X1_ROWS || raw.len() != 16 + n_cells + n_bits * 2 {
+        return None;
+    }
+    let counts = &raw[16..16 + n_cells];
+    let ids = &raw[16 + n_cells..];
+    let mut range = Vec::with_capacity(n_cells + 1);
+    range.push(0u32);
+    let mut total = 0u32;
+    for &c in counts {
+        total += c as u32;
+        range.push(total);
+    }
+    if total as usize != n_bits {
+        return None;
+    }
+    let bits = ids
+        .chunks_exact(2)
+        .map(|p| u16::from_le_bytes([p[0], p[1]]) as u32)
+        .collect();
+    Some((range, bits))
+}
+
+/// Idealized hexagon fallback for when the exact dumped LUT is unavailable.
+fn build_geometric_lut() -> (Vec<u32>, Vec<u32>) {
     let mut range = Vec::with_capacity(HALOT_X1_EBP * HALOT_X1_ROWS + 1);
     let mut bits = Vec::with_capacity(1_250_000);
     range.push(0); // range[0] = 0
@@ -221,10 +271,8 @@ mod tests {
         let buf = vec![255u8; HALOT_X1_COLS * HALOT_X1_ROWS];
         let mask = compute_halot_x1_mask(&buf, &range, &bits);
         let count: u32 = mask.iter().map(|b| b.count_ones()).sum();
-        // Geometric LUT produces 486 (exact HALOT BOX LUT gives 522 but requires
-        // the ensureBeadLut binary which crashes under Wine). 486 is close enough
-        // for functional printing - the printer just needs a reasonable mask.
-        assert_eq!(count, 486, "fully lit should hit 486 beads with geometric LUT, got {}", count);
+        // The exact dumped HALOT LUT activates 522 of the 542 bead indices.
+        assert_eq!(count, 522, "fully lit should hit 522 beads with the exact LUT, got {}", count);
     }
 
     #[test]

@@ -14,6 +14,7 @@ image = { version = "=0.25.6", default-features = false, features = ["png"] }
 # Established CTB/GOO encoders; the other printer writers live in src/formats.
 msla_format = { version = "0.2.0", default-features = false, features = ["ctb", "goo"] }
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Support settings and self-contained project files use serde serialization.
 serde = { version = "1", features = ["derive", "rc"] }
