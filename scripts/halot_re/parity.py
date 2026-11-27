@@ -39,6 +39,7 @@ EBP = 64       # LUT column bands per row
 EDI = 237      # pixels per LUT band (ceil(COLS / EBP))
 MASK_BYTES = 68
 MAX_BIT = 542
+MODEL_NAMES = ("lit", "hull", "cone", "hybrid")
 
 DEFAULT_FILE = (
     "/run/media/makzumi/storage/Games/halot-box/drive_c/users/steamuser/"
@@ -218,6 +219,16 @@ def hull_bitmap(pix: np.ndarray, centre: tuple[float, float] | None = None) -> n
     return _raster_polygon(verts[hull.vertices])
 
 
+def _hybrid_from(h: np.ndarray, c: np.ndarray, pix: np.ndarray) -> np.ndarray:
+    """Combine an already-computed hull and cone (see hybrid_bitmap)."""
+    ys = np.nonzero(pix)[0]
+    if ys.size == 0:
+        return h
+    below = np.zeros((ROWS, COLS), dtype=np.uint8)
+    below[int(ys.max()) + 1:, :] = 1
+    return np.maximum(h, c & below)
+
+
 def hybrid_bitmap(pix: np.ndarray, centre: tuple[float, float] = (COLS / 2, ROWS / 2)) -> np.ndarray:
     """Hull of centre+layer, plus the cone only below the layer's last row.
 
@@ -226,12 +237,26 @@ def hybrid_bitmap(pix: np.ndarray, centre: tuple[float, float] = (COLS / 2, ROWS
     """
     h = hull_bitmap(pix, centre=centre)
     c = cone_bitmap(pix, centre=centre)
-    ys = np.nonzero(pix)[0]
-    if ys.size == 0:
-        return h
-    below = np.zeros((ROWS, COLS), dtype=np.uint8)
-    below[int(ys.max()) + 1:, :] = 1
-    return np.maximum(h, c & below)
+    return _hybrid_from(h, c, pix)
+
+
+def model_bitmaps(pix: np.ndarray, models: list[str],
+                  centre: tuple[float, float] = (COLS / 2, ROWS / 2)) -> dict[str, np.ndarray]:
+    """Build all requested model bitmaps from one decode; hull/cone are shared."""
+    out: dict[str, np.ndarray] = {}
+    if "lit" in models:
+        out["lit"] = pix
+    need_hull = "hull" in models or "hybrid" in models
+    need_cone = "cone" in models or "hybrid" in models
+    h = hull_bitmap(pix, centre=centre) if need_hull else None
+    c = cone_bitmap(pix, centre=centre) if need_cone else None
+    if "hull" in models:
+        out["hull"] = h
+    if "cone" in models:
+        out["cone"] = c
+    if "hybrid" in models:
+        out["hybrid"] = _hybrid_from(h, c, pix)
+    return out
 
 
 def cone_bitmap(pix: np.ndarray, centre: tuple[float, float] = (COLS / 2, ROWS / 2)) -> np.ndarray:
@@ -326,7 +351,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="'all', comma list, or ranges like 0-531")
     ap.add_argument("--step", type=int, default=1,
                     help="sample every Nth layer when --layers all")
-    ap.add_argument("--model", choices=("lit", "hull", "cone", "hybrid"), default="lit")
+    ap.add_argument("--model", choices=("lit", "hull", "cone", "hybrid", "all"),
+                    default="lit", help="'all' compares lit/hull/cone/hybrid")
     ap.add_argument("--bit-order", choices=("msb", "lsb"), default="msb")
     ap.add_argument("--csv", help="write per-layer results to this CSV")
     args = ap.parse_args(argv)
@@ -345,36 +371,58 @@ def main(argv: list[str] | None = None) -> int:
         print("error: no layers selected", file=sys.stderr)
         return 2
 
+    models = list(MODEL_NAMES) if args.model == "all" else [args.model]
+    all_mode = args.model == "all"
     rows = []
     for idx in layers:
-        pix = load_layer_pairs(data, hdr, idx)
-        if args.model == "hull":
-            pix = hull_bitmap(pix, centre=(COLS / 2, ROWS / 2))
-        elif args.model == "cone":
-            pix = cone_bitmap(pix, centre=(COLS / 2, ROWS / 2))
-        elif args.model == "hybrid":
-            pix = hybrid_bitmap(pix, centre=(COLS / 2, ROWS / 2))
-        sim = lit_mask(pix, rng, bits)
+        base = load_layer_pairs(data, hdr, idx)
         ref = stored_mask(data, hdr, idx)
-        stats = compare(sim, ref, args.bit_order)
-        stats["layer"] = idx
-        rows.append(stats)
-        print(
-            f"L{idx:3d}  ref={stats['ref']:4d}  sim={stats['sim']:4d}  "
-            f"inter={stats['inter']:4d}  fp={stats['fp']:3d}  fn={stats['fn']:3d}  "
-            f"J={stats['jaccard']:.4f}"
-        )
-
-    jac = np.array([r["jaccard"] for r in rows], dtype=float)
-    print(
-        f"\n{len(rows)} layers  model={args.model}  "
-        f"J mean={jac.mean():.4f}  min={jac.min():.4f}  max={jac.max():.4f}"
-    )
-    if args.csv:
-        with open(args.csv, "w", newline="") as fh:
-            writer = csv.DictWriter(
-                fh, fieldnames=["layer", "ref", "sim", "inter", "fp", "fn", "jaccard"]
+        bitmaps = model_bitmaps(base, models, centre=(COLS / 2, ROWS / 2))
+        if all_mode:
+            row = {"layer": idx, "ref": len(bit_set(ref, args.bit_order))}
+            parts = []
+            for model in models:
+                stats = compare(lit_mask(bitmaps[model], rng, bits), ref, args.bit_order)
+                for key in ("sim", "inter", "fp", "fn", "jaccard"):
+                    row[f"{model}_{key}"] = stats[key]
+                parts.append(f"{model}={stats['sim']:3d}/J={stats['jaccard']:.4f}")
+            rows.append(row)
+            print(f"L{idx:3d}  ref={row['ref']:3d}  " + "  ".join(parts))
+        else:
+            model = models[0]
+            stats = compare(lit_mask(bitmaps[model], rng, bits), ref, args.bit_order)
+            stats["layer"] = idx
+            rows.append(stats)
+            print(
+                f"L{idx:3d}  ref={stats['ref']:4d}  sim={stats['sim']:4d}  "
+                f"inter={stats['inter']:4d}  fp={stats['fp']:3d}  fn={stats['fn']:3d}  "
+                f"J={stats['jaccard']:.4f}"
             )
+
+    print(f"\n{len(rows)} layers")
+    if all_mode:
+        for model in models:
+            jac = np.array([r[f"{model}_jaccard"] for r in rows], dtype=float)
+            print(
+                f"  {model:6s}  J mean={jac.mean():.4f}  "
+                f"min={jac.min():.4f}  max={jac.max():.4f}"
+            )
+    else:
+        jac = np.array([r["jaccard"] for r in rows], dtype=float)
+        print(
+            f"  {models[0]:6s}  J mean={jac.mean():.4f}  "
+            f"min={jac.min():.4f}  max={jac.max():.4f}"
+        )
+    if args.csv:
+        if all_mode:
+            fieldnames = ["layer", "ref"] + [
+                f"{model}_{key}" for model in models
+                for key in ("sim", "inter", "fp", "fn", "jaccard")
+            ]
+        else:
+            fieldnames = ["layer", "ref", "sim", "inter", "fp", "fn", "jaccard"]
+        with open(args.csv, "w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
         print(f"wrote {args.csv}")
