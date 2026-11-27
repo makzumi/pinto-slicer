@@ -92,6 +92,10 @@ A 20 mm cube at z=10 gives 22 beads.  Adding a 6x6x10 mm column at x=40 gives
 column is below the clip), which is the expected half-space behaviour.  The
 default mapping uses the HALOT-X1 pixel scales (71.4286 px/mm in X and
 52.6316 px/mm in Y); the earlier prototype's 50 px/mm default was wrong.
+The slice raster maps model +Y to image +Y, and `formats::mask` applies the
+printer's Y mirror afterwards; the area projection uses the same flag
+(`printer.mirror[1]`, false on HALOT-X1).  An offset block at negative model Y
+must land on the low image rows, not the mirrored front rows.
 
 As a calibration check, a synthetic support wall matching the layer-529 fan
 covers all 178 stored beads (202 total, Jaccard 0.881).  The extra 24 are

@@ -30,7 +30,9 @@ pub struct AreaTransform {
     pub center: [f32; 2],
     /// Pixels per millimetre on each axis.
     pub scale: [f32; 2],
-    /// Model +Y goes to image -Y (the HALOT raster is top-down).
+    /// Apply the printer's optical Y mirror. The slice raster maps model +Y
+    /// to image +Y; `formats::mask` then mirrors the image if the printer
+    /// needs it, so the area projection must use the same flag.
     pub flip_y: bool,
 }
 
@@ -44,7 +46,7 @@ impl AreaTransform {
                 1.0 / px[0].max(1e-6),
                 1.0 / px[1].max(1e-6),
             ],
-            flip_y: true,
+            flip_y: printer.mirror[1],
         }
     }
 
@@ -343,12 +345,14 @@ mod tests {
         // support-generation differences: every reference bead must be
         // covered, even if the synthetic wall adds a few boundary beads.
         let z = 530.0;
+        // The reference fan is on the +Y (front) side of the plate; the
+        // slice raster maps model +Y to image +Y, so the wall sits at +Y.
         let verts = vec![
-            Vec3::new(0.0, 5.149, z),
-            Vec3::new(-97.704, -51.16, z),
-            Vec3::new(-81.424, -65.35, z),
-            Vec3::new(81.424, -65.35, z),
-            Vec3::new(97.704, -51.16, z),
+            Vec3::new(0.0, -5.149, z),
+            Vec3::new(-97.704, 51.16, z),
+            Vec3::new(-81.424, 65.35, z),
+            Vec3::new(81.424, 65.35, z),
+            Vec3::new(97.704, 51.16, z),
         ];
         let fan = Mesh {
             verts,
@@ -377,6 +381,50 @@ mod tests {
             .sum();
         assert_eq!(inter, 178, "the fan must cover every L529 reference bead");
         assert_eq!(count(&mask), 202, "the synthetic wall should add 24 edge beads");
+    }
+
+    fn bead_row(bit: usize) -> usize {
+        let mut start = 0;
+        for row in 0..HALOT_X1_ROWS {
+            let width = if row % 2 == 0 { 29 } else { 28 };
+            if bit < start + width {
+                return row;
+            }
+            start += width;
+        }
+        HALOT_X1_ROWS - 1
+    }
+
+    #[test]
+    fn a_block_behind_the_centre_projects_to_the_back_rows() {
+        // The slice raster maps model y=-30 to the low image rows. The
+        // area projection must do the same; before the flip fix it landed
+        // on the front rows instead.
+        let mut block = sample_block();
+        for v in &mut block.verts {
+            v.y -= 30.0;
+        }
+        let (range, bits) = build_halot_x1_lut();
+        let mask = compute_halot_x1_area_mask(
+            &[block],
+            10.0,
+            AreaTransform::from_printer(&printer()),
+            &range,
+            &bits,
+        );
+        let mut min_row = HALOT_X1_ROWS;
+        let mut max_row = 0usize;
+        for bit in 0..HALOT_X1_MAX_BIT {
+            if mask[bit >> 3] & (1 << (7 - (bit & 7))) != 0 {
+                let row = bead_row(bit);
+                min_row = min_row.min(row);
+                max_row = max_row.max(row);
+            }
+        }
+        assert!(
+            min_row >= 2 && max_row <= 6,
+            "a model at y=-30 must project to the back rows, got {min_row}..={max_row}"
+        );
     }
 
 }

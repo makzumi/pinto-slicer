@@ -197,9 +197,8 @@ def main() -> int:
                     help="image X,Y of model origin (default: plate centre)")
     ap.add_argument("--scale", default="71.4286,52.6316",
                     help="pixels per mm, X or X,Y (default: HALOT-X1 71.4286,52.6316)")
-    ap.add_argument("--flip-y", action="store_true", default=True,
-                    help="model +Y maps to image -Y (default: true)")
-    ap.add_argument("--no-flip-y", dest="flip_y", action="store_false")
+    ap.add_argument("--flip-y", action="store_true", default=False,
+                    help="model +Y maps to image -Y (only for a Y-mirrored printer; default: false)")
     ap.add_argument("--filter", choices=("none", "dilate", "erode", "blur"),
                     default="none")
     ap.add_argument("--radius", type=int, default=0)
