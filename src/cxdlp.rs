@@ -14,6 +14,7 @@ use crate::formats::{self, Progress};
 use crate::slicer::SliceResult;
 
 use crate::halot_x1_mask::{build_halot_x1_lut, compute_halot_x1_mask, HALOT_X1_MASK_BYTES};
+use crate::halot_x1_area::{compute_halot_x1_area_mask, AreaTransform};
 
 const MAGIC: &[u8; 9] = b"CXSW3DV2\0";
 const PRINT_PARAMETERS_SIZE: usize = 68;
@@ -770,6 +771,11 @@ pub fn write_v4(
     } else {
         (None, None)
     };
+    let area_transform = if x1 {
+        Some(AreaTransform::from_printer(printer))
+    } else {
+        None
+    };
     // Store per-layer masks for X1
     let mut layer_masks: Vec<[u8; HALOT_X1_MASK_BYTES]> = if x1 {
         Vec::with_capacity(total)
@@ -779,10 +785,26 @@ pub fn write_v4(
     for (i, layer) in slice.layers.iter().enumerate() {
         formats::mask(layer, printer, res, &mut buf);
         lit_pixels += buf.iter().filter(|v| **v != 0).count() as u64;
-        // Compute X1 mask from post-mirror buf (res.0 x res.1, 0/255)
+        // HALOT's 68-byte field is the subzone projection of the model +
+        // support area above the layer, not the 3-bit slice mask.  Use the
+        // area mesh when the slice result carries one; fall back to the slice
+        // mask for callers that only have 2D segments.
         if x1 {
-            if let (Some(range), Some(bits)) = (&lut_range, &lut_bits) {
-                layer_masks.push(compute_halot_x1_mask(&buf, range, bits));
+            if let (Some(range), Some(bits), Some(transform)) =
+                (&lut_range, &lut_bits, area_transform)
+            {
+                let mask = if slice.area_meshes.is_empty() {
+                    compute_halot_x1_mask(&buf, range, bits)
+                } else {
+                    compute_halot_x1_area_mask(
+                        &slice.area_meshes,
+                        layer.z,
+                        transform,
+                        range,
+                        bits,
+                    )
+                };
+                layer_masks.push(mask);
             }
         }
         let encoded = if x1 {

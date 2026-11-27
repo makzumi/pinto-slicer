@@ -276,6 +276,16 @@ mod tests {
     }
 
     #[test]
+    fn exact_lut_matches_a_reference_cell() {
+        let (range, bits) = build_halot_x1_lut();
+        let gi = 1000 * HALOT_X1_EBP + 30;
+        assert_eq!(
+            &bits[range[gi] as usize..range[gi + 1] as usize],
+            &[70, 71, 98, 99, 100, 127, 128]
+        );
+    }
+
+    #[test]
     fn empty_image_produces_zero_mask() {
         let (range, bits) = build_halot_x1_lut();
         let buf = vec![0u8; HALOT_X1_COLS * HALOT_X1_ROWS];
