@@ -14,7 +14,6 @@ use crate::formats::{self, Progress};
 use crate::slicer::SliceResult;
 
 use crate::halot_x1_mask::{build_halot_x1_lut, compute_halot_x1_mask, HALOT_X1_MASK_BYTES};
-use crate::halot_x1_area::{compute_halot_x1_area_mask, AreaTransform};
 
 const MAGIC: &[u8; 9] = b"CXSW3DV2\0";
 const PRINT_PARAMETERS_SIZE: usize = 68;
@@ -771,11 +770,6 @@ pub fn write_v4(
     } else {
         (None, None)
     };
-    let area_transform = if x1 {
-        Some(AreaTransform::from_printer(printer))
-    } else {
-        None
-    };
     // Store per-layer masks for X1
     let mut layer_masks: Vec<[u8; HALOT_X1_MASK_BYTES]> = if x1 {
         Vec::with_capacity(total)
@@ -785,32 +779,22 @@ pub fn write_v4(
     for (i, layer) in slice.layers.iter().enumerate() {
         formats::mask(layer, printer, res, &mut buf);
         lit_pixels += buf.iter().filter(|v| **v != 0).count() as u64;
-        // HALOT's 68-byte field is the subzone projection of the model +
-        // support area above the layer, not the 3-bit slice mask.  Use the
-        // area mesh when the slice result carries one; fall back to the slice
-        // mask for callers that only have 2D segments.
+        // The backlight mask is a coverage map for this layer's LCD image:
+        // every zone that contains a lit pixel is enabled.  Supports are part
+        // of the sliced layer, so no separate support/area projection is
+        // needed (and support geometry is free to change independently).
         if x1 {
-            if let (Some(range), Some(bits), Some(transform)) =
-                (&lut_range, &lut_bits, area_transform)
-            {
-                let slice_mask = compute_halot_x1_mask(&buf, range, bits);
-                let mask = if slice.area_meshes.is_empty() {
-                    slice_mask
+            if let (Some(range), Some(bits)) = (&lut_range, &lut_bits) {
+                let native = printer.native_res();
+                let mask = if res == native {
+                    compute_halot_x1_mask(&buf, range, bits)
                 } else {
-                    let mut mask = compute_halot_x1_area_mask(
-                        &slice.area_meshes,
-                        layer.z,
-                        transform,
-                        range,
-                        bits,
-                    );
-                    // Never leave a lit pixel without its UV zone.  The area
-                    // projection can miss the underside of an overhang; the
-                    // slice mask is the floor, not an alternative.
-                    for (a, b) in mask.iter_mut().zip(slice_mask.iter()) {
-                        *a |= *b;
-                    }
-                    mask
+                    // The zone LUT is defined on the native 15120×6230
+                    // panel.  Preview/test writers may use a smaller image,
+                    // but the mask must still come from the native raster.
+                    let mut native_buf = Vec::new();
+                    formats::mask(layer, printer, native, &mut native_buf);
+                    compute_halot_x1_mask(&native_buf, range, bits)
                 };
                 layer_masks.push(mask);
             }
