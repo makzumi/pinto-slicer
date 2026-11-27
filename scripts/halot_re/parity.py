@@ -181,25 +181,96 @@ def lit_mask(pix: np.ndarray, rng: np.ndarray, bits: np.ndarray) -> bytes:
     return bytes(mask)
 
 
-def hull_bitmap(pix: np.ndarray, centre: tuple[float, float] | None = None) -> np.ndarray:
-    """Rasterise the convex hull of the lit pixels (+ plate centre)."""
-    from PIL import Image, ImageDraw
+def _hull_vertices(pix: np.ndarray) -> np.ndarray:
+    """Return the convex-hull vertices of the lit pixels (subsampled)."""
     from scipy.spatial import ConvexHull
 
     ys, xs = np.nonzero(pix)
     if ys.size == 0:
-        return np.zeros((ROWS, COLS), dtype=np.uint8)
+        return np.empty((0, 2), dtype=np.float64)
     # Many layers have millions of lit pixels; a stride is enough for the hull
     # and keeps the Delaunay step fast.
     stride = max(1, ys.size // 200_000)
     pts = np.column_stack([xs[::stride], ys[::stride]]).astype(np.float64)
-    if centre is not None:
-        pts = np.vstack([pts, [centre[0], centre[1]]])
     hull = ConvexHull(pts)
-    poly = [tuple(p) for p in pts[hull.vertices]]
+    return pts[hull.vertices]
+
+
+def _raster_polygon(points: np.ndarray) -> np.ndarray:
+    from PIL import Image, ImageDraw
+
     img = Image.new("L", (COLS, ROWS), 0)
-    ImageDraw.Draw(img).polygon(poly, fill=1)
+    ImageDraw.Draw(img).polygon([tuple(p) for p in points], fill=1)
     return np.asarray(img, dtype=np.uint8)
+
+
+def hull_bitmap(pix: np.ndarray, centre: tuple[float, float] | None = None) -> np.ndarray:
+    """Rasterise the convex hull of the lit pixels (+ plate centre)."""
+    verts = _hull_vertices(pix)
+    if verts.size == 0:
+        return np.zeros((ROWS, COLS), dtype=np.uint8)
+    if centre is not None:
+        verts = np.vstack([verts, [centre[0], centre[1]]])
+    # The points are already a convex polygon; adding the centre keeps the
+    # convex hull valid and avoids a second triangulation.
+    from scipy.spatial import ConvexHull
+    hull = ConvexHull(verts)
+    return _raster_polygon(verts[hull.vertices])
+
+
+def hybrid_bitmap(pix: np.ndarray, centre: tuple[float, float] = (COLS / 2, ROWS / 2)) -> np.ndarray:
+    """Hull of centre+layer, plus the cone only below the layer's last row.
+
+    Large layers already reach the bottom of the image, so the cone is not
+    allowed to widen their sides; thin high layers get the downward skirt.
+    """
+    h = hull_bitmap(pix, centre=centre)
+    c = cone_bitmap(pix, centre=centre)
+    ys = np.nonzero(pix)[0]
+    if ys.size == 0:
+        return h
+    below = np.zeros((ROWS, COLS), dtype=np.uint8)
+    below[int(ys.max()) + 1:, :] = 1
+    return np.maximum(h, c & below)
+
+
+def cone_bitmap(pix: np.ndarray, centre: tuple[float, float] = (COLS / 2, ROWS / 2)) -> np.ndarray:
+    """Rasterise the central projection (shadow/cone) of the layer hull.
+
+    Each hull vertex is projected from `centre` through the vertex to the
+    plate boundary.  The convex hull of the centre, the layer, and those exit
+    points is the cone that the layer subtends; it adds the far-side skirt
+    that a plain layer hull cannot contain.
+    """
+    verts = _hull_vertices(pix)
+    if verts.size == 0:
+        return np.zeros((ROWS, COLS), dtype=np.uint8)
+    c = np.asarray(centre, dtype=np.float64)
+    exits: list[np.ndarray] = []
+    for p in verts:
+        d = p - c
+        if abs(d[0]) < 1e-9 and abs(d[1]) < 1e-9:
+            continue
+        ts: list[float] = []
+        for axis, bound in ((0, 0.0), (0, COLS - 1.0),
+                            (1, 0.0), (1, ROWS - 1.0)):
+            if abs(d[axis]) < 1e-9:
+                continue
+            t = (bound - c[axis]) / d[axis]
+            if t <= 1.0:
+                continue
+            q = c + t * d
+            if -0.5 <= q[0] <= COLS - 0.5 and -0.5 <= q[1] <= ROWS - 0.5:
+                ts.append(t)
+        if ts:
+            exits.append(c + min(ts) * d)
+    pts = [c, *verts]
+    if exits:
+        pts.extend(exits)
+    allpts = np.asarray(pts, dtype=np.float64)
+    from scipy.spatial import ConvexHull
+    hull = ConvexHull(allpts)
+    return _raster_polygon(allpts[hull.vertices])
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="'all', comma list, or ranges like 0-531")
     ap.add_argument("--step", type=int, default=1,
                     help="sample every Nth layer when --layers all")
-    ap.add_argument("--model", choices=("lit", "hull"), default="lit")
+    ap.add_argument("--model", choices=("lit", "hull", "cone", "hybrid"), default="lit")
     ap.add_argument("--bit-order", choices=("msb", "lsb"), default="msb")
     ap.add_argument("--csv", help="write per-layer results to this CSV")
     args = ap.parse_args(argv)
@@ -279,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
         pix = load_layer_pairs(data, hdr, idx)
         if args.model == "hull":
             pix = hull_bitmap(pix, centre=(COLS / 2, ROWS / 2))
+        elif args.model == "cone":
+            pix = cone_bitmap(pix, centre=(COLS / 2, ROWS / 2))
+        elif args.model == "hybrid":
+            pix = hybrid_bitmap(pix, centre=(COLS / 2, ROWS / 2))
         sim = lit_mask(pix, rng, bits)
         ref = stored_mask(data, hdr, idx)
         stats = compare(sim, ref, args.bit_order)
