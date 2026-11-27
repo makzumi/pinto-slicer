@@ -5070,7 +5070,7 @@ impl App {
                 // pick the plate behind it.
                 let over_chips = raw_pointer
                     .pos
-                    .is_some_and(|p| lens_chips(rect).iter().any(|(chip, _, _)| chip.contains(p)));
+                    .is_some_and(|p| lens_chips(rect).iter().any(|(chip, _)| chip.contains(p)));
                 let over_controls = over_navigation || over_chips;
                 let drag_active = self.input.is_dragging();
                 let face_click = if raw_pointer.primary_pressed && !drag_active {
@@ -5261,16 +5261,40 @@ impl App {
                 // clicks before they can select a model behind it.
                 navigation.paint(&painter, raw_pointer.pos);
 
-                // The lens pills keep the corner to themselves.
-                for (chip, label, orthographic) in lens_chips(rect) {
+                // The lens chips keep the corner to themselves.
+                for (chip, orthographic) in lens_chips(rect) {
                     let hint = if orthographic {
                         "Orthographic: every piece keeps its size, however far away it is"
                     } else {
                         "Perspective: the near pieces look bigger (the default)"
                     };
+                    let on = self.cam.ortho == orthographic;
                     let response = ui
-                        .put(chip, lens_pill(label, self.cam.ortho == orthographic))
+                        .interact(
+                            chip,
+                            egui::Id::new("lens_chip").with(orthographic),
+                            egui::Sense::click(),
+                        )
                         .on_hover_text(hint);
+                    let painter = ui.painter_at(chip);
+                    painter.rect_filled(
+                        chip,
+                        egui::Rounding::same(8.0),
+                        if on {
+                            ACCENT_BG
+                        } else {
+                            egui::Color32::from_black_alpha(120)
+                        },
+                    );
+                    paint_projection_icon(
+                        &painter,
+                        chip,
+                        orthographic,
+                        if on { egui::Color32::WHITE } else { MUTED },
+                    );
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
                     if response.clicked() {
                         self.cam.ortho = orthographic;
                         self.status = if orthographic {
@@ -5868,8 +5892,9 @@ impl App {
                 ui.label(
                     egui::RichText::new(
                         "The File menu keeps the last ten models and the last ten projects, each under its own Open recent. \
-                         Under the viewport's caption, Persp and Ortho swap the lens, and \
-                         the home button under the orientation cube goes back to the \
+                         Under the viewport's caption, the two cube chips swap the lens \
+                         between perspective and orthographic, and \
+                         the home button on the orientation cube goes back to the \
                          three-quarter view. The left strip can copy what is picked as \
                          many times as asked for, or put a mirrored copy beside it. A \
                          turn ring can be made to land on round numbers from the Snap box \
@@ -6395,32 +6420,82 @@ fn step_button(ui: &mut egui::Ui, selected: bool, step: Tab) -> bool {
     resp.clicked()
 }
 
-/// The two lens chips, each with the box it occupies and the camera setting
-/// it stands for. Kept as plain geometry so the pointer can be measured
-/// against them before the picture is even drawn.
-fn lens_chips(rect: egui::Rect) -> [(egui::Rect, &'static str, bool); 2] {
-    let size = egui::vec2(58.0, 22.0);
+/// The two lens chips, each with the square it occupies and the camera
+/// setting it stands for. Kept as plain geometry so the pointer can be
+/// measured against them before the picture is even drawn.
+fn lens_chips(rect: egui::Rect) -> [(egui::Rect, bool); 2] {
+    let size = egui::vec2(26.0, 26.0);
     let at = rect.left_top() + egui::vec2(12.0, 12.0);
     [
-        (egui::Rect::from_min_size(at, size), "Persp", false),
+        (egui::Rect::from_min_size(at, size), false),
         (
             egui::Rect::from_min_size(at + egui::vec2(size.x + 4.0, 0.0), size),
-            "Ortho",
             true,
         ),
     ]
 }
 
-fn lens_pill(label: &str, on: bool) -> egui::Button<'static> {
-    let text = egui::RichText::new(label).size(10.5);
-    egui::Button::new(text.color(if on { egui::Color32::WHITE } else { MUTED }))
-        .fill(if on {
-            ACCENT_BG
-        } else {
-            egui::Color32::from_black_alpha(120)
-        })
-        .rounding(egui::Rounding::same(8.0))
-        .stroke(egui::Stroke::NONE)
+/// One lens chip: a quiet pill that carries a hand-drawn cube instead of a
+/// word. The perspective cube's back face shrinks toward a vanishing point;
+/// the orthographic one keeps its edges parallel. The geometry is tiny, so
+/// it is painted directly rather than joining the icon font.
+fn paint_projection_icon(
+    painter: &egui::Painter,
+    chip: egui::Rect,
+    ortho: bool,
+    colour: egui::Color32,
+) {
+    let c = chip.center();
+    let stroke = egui::Stroke::new(1.4_f32, colour);
+    let (front_center, back_center, front_half, back_half) = if ortho {
+        // Cabinet projection: both faces the same size, back shifted
+        // diagonally, so every connecting edge stays parallel.
+        (
+            c + egui::vec2(-2.5, 2.5),
+            c + egui::vec2(3.0, -3.0),
+            6.0,
+            6.0,
+        )
+    } else {
+        // One-point perspective: the back face is the front face scaled
+        // toward the vanishing point, so the connecting edges converge.
+        let front = c + egui::vec2(-3.0, 3.0);
+        let t = 0.35;
+        (
+            front,
+            c + (front - c) * t,
+            6.5,
+            6.5 * t,
+        )
+    };
+    let face = |center: egui::Pos2, half: f32| -> [egui::Pos2; 4] {
+        [
+            center + egui::vec2(-half, -half),
+            center + egui::vec2(half, -half),
+            center + egui::vec2(half, half),
+            center + egui::vec2(-half, half),
+        ]
+    };
+    let back = face(back_center, back_half);
+    let front = face(front_center, front_half);
+    // Connectors first, then the back face, then the front face on top.
+    let edges = |f: &[egui::Pos2; 4]| {
+        [
+            [f[0], f[1]],
+            [f[1], f[2]],
+            [f[2], f[3]],
+            [f[3], f[0]],
+        ]
+    };
+    for i in 0..4 {
+        painter.line_segment([front[i], back[i]], stroke);
+    }
+    for edge in edges(&back) {
+        painter.line_segment(edge, stroke);
+    }
+    for edge in edges(&front) {
+        painter.line_segment(edge, stroke);
+    }
 }
 
 /// Which parameter card a support preview belongs to.
