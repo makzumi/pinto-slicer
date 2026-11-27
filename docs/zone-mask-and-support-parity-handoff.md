@@ -26,15 +26,16 @@ Not actually more — *bulkier*. Two independent root causes were found and fixe
 2. **Backlight mask** — see below. This did not affect support *count*, but it
    caused a real print failure (center-only curing).
 
-## The 68-byte active-region mask (remaining work)
+## The 68-byte active-region mask (shipped in 0.1.28)
 
 HALOT Box writes a per-layer 68-byte (544-bit) "active region" mask into each
 layer-table record (words `w10..w26`); we originally wrote zeros there. The
 printer's "Honeycomb Matrix" backlight uses it to light only the LED sub-zones
 under the current slice (a power/even-exposure optimization, not a
 correctness requirement). A zeroed mask made the printer light only the center
-→ failed prints. Interim fix: `6a73962` writes all `0xFF` (light every zone;
-the LCD mask still confines the cure geometrically).
+→ failed prints. Interim fix: `6a73962` wrote all `0xFF` (light every zone;
+the LCD mask still confines the cure geometrically); 0.1.28 computes the
+real per-layer mask — see below.
 
 ### Known facts
 
@@ -51,47 +52,65 @@ the LCD mask still confines the cure geometrically).
   15120×6230, build 211.68×118.37×200 mm. `R009.printer` config =
   `format_version=4`, `export_format=cxdlpv4`, `mirror_type=mirror_x`.
 
-### Reverse-engineering state (where we stopped)
+### Reverse-engineering state (finished in 0.1.28)
 
-- `cxdlp.dll` (`LampBeadCal` class) **computes** the mask, and its bead
-  geometry is **angular/arc**, not a plain rectangle: `preinit(f1,f2,c1,c2,…)`
-  iterates beads in angular space ÷ `180.0f`, applies cos/sin, scales by LCD
-  resolution; 6 beads per zone; `findBeadByPoint(x,y)` maps pixel → bead/zone
-  via a stored 3×2 affine matrix + integer divide.
-- **Pitch + count are runtime params passed by the caller**, not hardcoded:
-  a float scan of every DLL/exe found no `7.3`/`6.23`/`7.29931`/`6.22947`
-  constants. Build plate `211.68`/`118.37` IS hardcoded in `cxdlp.dll` `.rdata`
-  (at `0x18004dd08`/`0x18004dd00`).
-- **Caller = `BasicKernel.dll`** — it imports the `LampBeadCal` symbols
-  (`initLampBeadCal`, `getbeaddata`, `getsubzonedata`, `ensureBeadLut`,
-  `setBeadsForRange`, `whereami`, `reset`, `resetForReinit`) and owns the
-  `creative_kernel::PrinterHeatMap` class (`changeHeatMap(QJsonObject)` etc.).
-  Its debug keys: `[HeatMap] initLampBeadCal: beadct=`,
-  `[HeatMap] model bbox: min=(`, `[HeatMap] scanline: pixelYrange=[`,
-  `lampBallArray=`, `lampBallMap=`, `lampBall2LampAreaMap=`, `beads/inst:`,
-  `enabledBeads=`.
-- String VAs in `BasicKernel.dll` (ImageBase `0x180000000`), for disassembly:
-  - `[HeatMap] initLampBeadCal: beadct=` → `0x1802702a8` (RVA `0x2702a8`)
-  - `lampBallArray=` → `0x1802700f1`; `lampBallMap=` → `0x1802700e1`
-  - `lampBall2LampAreaMap=` → `0x1802703a1`; `beads/inst:` → `0x18027ee88`
-  - `enabledBeads=` → `0x180270369`; `[HeatMap] model bbox: min=(` → `0x1802703b8`
-  - `[HeatMap] scanline: pixelYrange=[` → `0x1802703f0`
+The investigation completed after this note was first written. The full
+algorithm is understood from disassembling `cxdlp.dll` itself:
 
-### Next steps to finish the dynamic mask
+- `encodeCtbImage_16K_withNoAreaPartData_3bit` (ordinal 302) scans the layer
+  bitmap row by row in 2-pixel units; for each maximal run of lit pairs it
+  calls `getsubzonedata(start, end)` with image-linear offsets.
+- `getsubzonedata` (ordinal 357) walks the pixel rows a range spans and,
+  per row, marks beads through an internal rasterization LUT:
+  64 column bands (237 px each) × 6230 rows, each cell a list of bead
+  bit-indices. Bits are MSB-first, `bit b → byte b/8, position 7-(b%8)`,
+  542 beads. No fill, dilation or thresholding — a bead lights iff a lit
+  run touches its rasterized cell.
+- `ensureBeadLut` (ordinal 310) builds that LUT from the bead polygons. We
+  dumped it once (398,720 cells, 1.25 M indices) and used it to verify the
+  algorithm end to end; a fully-lit image reproduces exactly 522 of 542
+  beads (the other 20 lie off-plate).
+- `BasicKernel.dll` is only the caller: it owns
+  `creative_kernel::PrinterHeatMap` and invokes the `LampBeadCal` symbols.
+  Debug keys (string VAs, ImageBase `0x180000000`):
+  `[HeatMap] initLampBeadCal: beadct=` → `0x1802702a8`,
+  `lampBallArray=` → `0x1802700f1`, `lampBallMap=` → `0x1802700e1`,
+  `lampBall2LampAreaMap=` → `0x1802703a1`, `beads/inst:` → `0x18027ee88`,
+  `enabledBeads=` → `0x180270369`, `[HeatMap] model bbox: min=(` → `0x1802703b8`,
+  `[HeatMap] scanline: pixelYrange=[` → `0x1802703f0`.
 
-1. **Find the caller's pitch/count params.** Disassemble `BasicKernel.dll`
-   around the `[HeatMap] initLampBeadCal: beadct=` call site (string xref at
-   `0x1802702a8`) to see what floats/ushorts it passes. Expected X1 values:
-   pitchX `7.30` mm, pitchY `6.23` mm (211.68/29, 118.37/19), 29 cols × 19
-   rows → 542 beads → 544-bit mask.
-2. **Or run `getLampMask` under Wine** — `cxdlp.dll` exports
-   `?getLampMask@LampBeadCal@@…` returning `vector<vector<pair<int64,int64>>>`
-   (bead pixel ranges). Needs a Windows-hosted caller (no mingw cross-compiler
-   and no Windows python in the Wine prefix).
-3. **Then implement** per-zone masks in `src/cxdlp.rs` write path: for each
-   slice, compute the 544-bit mask (which beads the slice touches) using the
-   recovered bead geometry, and write it into `w10..w26`. Keep the all-`0xFF`
-   fallback behind a toggle.
+### What shipped in 0.1.28
+
+`src/halot_x1_mask.rs` implements the same pipeline in Rust:
+`build_halot_x1_lut()` rasterizes the ideal honeycomb (19 rows alternating
+29/28 beads, 581.5 × 371.09 px pitch, 291-px apothem hexagons) into the same
+64 × 6230 grid, and `compute_halot_x1_mask()` replays the run → row → band →
+bit marking over each slice bitmap. `write_v4` stores one 68-byte mask per
+layer and writes it into the record tail in place of the all-`0xFF`
+workaround (non-X1 printers keep the old tail).
+
+This is a close geometric approximation, not bit-exact parity: our fully-lit
+image marks 486 beads versus HALOT's 522, because HALOT's LUT is rasterized
+from clipped bead polygons, not ideal centre-based hexagons. Functionally it
+lights the correct region per layer; only the fringe zones differ.
+
+### Remaining work for exact parity
+
+1. Dump HALOT's own LUT: `scripts/halot_re/lutdump2.c` already does this
+   from a Windows host, but `ensureBeadLut` throws a C++ exception under
+   current Wine (the older dumps predate a `/tmp` cleanup and are gone).
+   Either fix the Wine crash or run it on real Windows, then bake the
+   398,720-cell table in as data instead of computing it.
+2. Or disassemble `ensureBeadLut` at `0x180021c30` fully: it computes
+   `edi = (COLS-1+64)/64 = 237` px bands, then fills the per-cell bead lists
+   via `collectBeadsForBand` (ordinal 276 at `0x180020c20`), which clips
+   each bead polygon to the band — the exact rasterization rule we
+   approximated.
+3. Byte 67's extra bits: HALOT sets bits 542 and 543 together on 148 of 532
+   layers of the reference file; purpose unknown (printer-side flag, not a
+   zone). We write zero there.
+
+Research tools and their README are kept under `scripts/halot_re/`.
 
 ### Useful files
 
@@ -141,5 +160,7 @@ the LCD mask still confines the cure geometrically).
 
 ## Open items
 
-1. Dynamic per-zone backlight mask (see above) — the only remaining item.
+1. Bit-exact LUT parity (see "Remaining work for exact parity" above) —
+   the shipped mask is a geometric approximation and prints correctly;
+   exact parity is polish.
 2. (Optional, declined) per-model support density.

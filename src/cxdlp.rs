@@ -13,6 +13,10 @@ use crate::config::{PrintSettings, PrinterProfile};
 use crate::formats::{self, Progress};
 use crate::slicer::SliceResult;
 
+#[path = "halot_x1_mask.rs"]
+mod halot_x1_mask;
+use halot_x1_mask::{build_halot_x1_lut, compute_halot_x1_mask, HALOT_X1_MASK_BYTES};
+
 const MAGIC: &[u8; 9] = b"CXSW3DV2\0";
 const PRINT_PARAMETERS_SIZE: usize = 68;
 const SLICER_INFO_SIZE: usize = 76;
@@ -761,9 +765,28 @@ pub fn write_v4(
     // should announce comes straight off the masks. Counting while the layers
     // stream keeps the estimate in step with what the file actually cures.
     let mut lit_pixels: u64 = 0;
+    // Build LUT once for X1 mask computation
+    let (lut_range, lut_bits) = if x1 {
+        let (r, b) = build_halot_x1_lut();
+        (Some(r), Some(b))
+    } else {
+        (None, None)
+    };
+    // Store per-layer masks for X1
+    let mut layer_masks: Vec<[u8; HALOT_X1_MASK_BYTES]> = if x1 {
+        Vec::with_capacity(total)
+    } else {
+        Vec::new()
+    };
     for (i, layer) in slice.layers.iter().enumerate() {
         formats::mask(layer, printer, res, &mut buf);
         lit_pixels += buf.iter().filter(|v| **v != 0).count() as u64;
+        // Compute X1 mask from post-mirror buf (res.0 x res.1, 0/255)
+        if x1 {
+            if let (Some(range), Some(bits)) = (&lut_range, &lut_bits) {
+                layer_masks.push(compute_halot_x1_mask(&buf, range, bits));
+            }
+        }
         let encoded = if x1 {
             pixel_pair_rle(&buf, res.0)?
         } else {
@@ -836,7 +859,7 @@ pub fn write_v4(
         .map(|(_, _, _, address, size)| (*address, *size))
         .collect();
     validate_v4_layers(&layer_ranges, data_end).map_err(|e| formats::io(path, e))?;
-    for (z, exposure, off, address, size) in definitions {
+    for (i, (z, exposure, off, address, size)) in definitions.into_iter().enumerate() {
         lef(&mut file, z).map_err(|e| formats::io(path, e))?;
         lef(&mut file, exposure).map_err(|e| formats::io(path, e))?;
         lef(&mut file, off).map_err(|e| formats::io(path, e))?;
@@ -847,8 +870,18 @@ pub fn write_v4(
         le32(&mut file, 0).map_err(|e| formats::io(path, e))?; // largest area
         le32(&mut file, 1).map_err(|e| formats::io(path, e))?; // has an image
         le32(&mut file, 0).map_err(|e| formats::io(path, e))?;
-        file.write_all(&LAYER_RECORD_TAIL)
-            .map_err(|e| formats::io(path, e))?;
+        // Per-layer LED zone mask (first 68 bytes of 80-byte tail)
+        if x1 {
+            if let Some(mask) = layer_masks.get(i) {
+                file.write_all(mask).map_err(|e| formats::io(path, e))?;
+                // Remaining 12 bytes of tail (reserved, zero)
+                file.write_all(&[0u8; 12]).map_err(|e| formats::io(path, e))?;
+            } else {
+                file.write_all(&LAYER_RECORD_TAIL).map_err(|e| formats::io(path, e))?;
+            }
+        } else {
+            file.write_all(&LAYER_RECORD_TAIL).map_err(|e| formats::io(path, e))?;
+        }
     }
     file.seek(SeekFrom::End(0))
         .map_err(|e| formats::io(path, e))?;
@@ -1133,6 +1166,7 @@ mod tests {
     fn v4_matches_the_shape_halot_box_writes() {
         let sl = slicer::slice(&[mesh::sample_block()], 0.5);
         let path = std::env::temp_dir().join("resin_slicer_shape.cxdlpv4");
+        // Use HALOT-X1 (index 0) to test V4 structure with X1 mask logic
         write_v4(
             &path,
             &default_printers()[0],
@@ -1170,10 +1204,18 @@ mod tests {
                 assert_eq!(layer as usize, table + count * LAYER_RECORD_SIZE);
             }
             address = layer as usize;
-            assert_eq!(
-                &bytes[record + 40..record + LAYER_RECORD_SIZE],
-                &LAYER_RECORD_TAIL
-            );
+            // X1 writes per-layer mask (68 bytes) + 12 zero bytes; non-X1 writes LAYER_RECORD_TAIL (80 bytes of 0xFF)
+            let is_x1 = default_printers()[0].machine_name.eq_ignore_ascii_case("HALOT-X1");
+            if is_x1 {
+                // For X1: first 68 bytes = computed mask, last 12 = zeros
+                // The test layer is nearly empty, so mask should be mostly zeros
+                assert_eq!(&bytes[record + 40 + 68..record + LAYER_RECORD_SIZE], &[0u8; 12]);
+            } else {
+                assert_eq!(
+                    &bytes[record + 40..record + LAYER_RECORD_SIZE],
+                    &LAYER_RECORD_TAIL
+                );
+            }
         }
         let data_end = address
             + u32::from_le_bytes(
