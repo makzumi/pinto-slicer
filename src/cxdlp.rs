@@ -793,16 +793,24 @@ pub fn write_v4(
             if let (Some(range), Some(bits), Some(transform)) =
                 (&lut_range, &lut_bits, area_transform)
             {
+                let slice_mask = compute_halot_x1_mask(&buf, range, bits);
                 let mask = if slice.area_meshes.is_empty() {
-                    compute_halot_x1_mask(&buf, range, bits)
+                    slice_mask
                 } else {
-                    compute_halot_x1_area_mask(
+                    let mut mask = compute_halot_x1_area_mask(
                         &slice.area_meshes,
                         layer.z,
                         transform,
                         range,
                         bits,
-                    )
+                    );
+                    // Never leave a lit pixel without its UV zone.  The area
+                    // projection can miss the underside of an overhang; the
+                    // slice mask is the floor, not an alternative.
+                    for (a, b) in mask.iter_mut().zip(slice_mask.iter()) {
+                        *a |= *b;
+                    }
+                    mask
                 };
                 layer_masks.push(mask);
             }
@@ -1330,6 +1338,42 @@ mod tests {
         assert!(bytes.windows(motion.len()).any(|w| w == motion));
         let stored_crc = u32::from_be_bytes(bytes[bytes.len() - 4..].try_into().unwrap());
         assert_eq!(crc32(&bytes[..bytes.len() - 4], 0), stored_crc);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn x1_mask_covers_every_lit_pixel() {
+        let sl = slicer::slice(&[mesh::sample_block()], 0.5);
+        let printer = &default_printers()[0];
+        let path = std::env::temp_dir().join("resin_slicer_x1_coverage.cxdlpv4");
+        write_v4(
+            &path,
+            printer,
+            &PrintSettings::default(),
+            &sl,
+            (96, 64),
+            &mut |_, _| true,
+        )
+        .unwrap()
+        .unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let count = u32::from_le_bytes(bytes[64..68].try_into().unwrap()) as usize;
+        let table = u32::from_le_bytes(bytes[60..64].try_into().unwrap()) as usize;
+        let (range, bits) = build_halot_x1_lut();
+        let (cols, rows) = printer.native_res();
+        for (i, layer) in sl.layers.iter().enumerate().take(count) {
+            let rec = table + i * LAYER_RECORD_SIZE;
+            let stored = &bytes[rec + 40..rec + 40 + HALOT_X1_MASK_BYTES];
+            let mut buf = Vec::new();
+            formats::mask(layer, printer, (cols, rows), &mut buf);
+            let lit = compute_halot_x1_mask(&buf, &range, &bits);
+            let missing: u32 = lit
+                .iter()
+                .zip(stored.iter())
+                .map(|(a, b)| (a & !b).count_ones())
+                .sum();
+            assert_eq!(missing, 0, "layer {i} leaves lit pixels without a UV zone");
+        }
         let _ = std::fs::remove_file(path);
     }
 
