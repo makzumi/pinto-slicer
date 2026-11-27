@@ -13,6 +13,10 @@ typedef void (__attribute__((ms_abi)) *init_fn)(void*, int64_t,int64_t,int64_t,
     uint32_t,uint32_t,uint32_t, void*,void*,void*, uint32_t,int64_t,uint32_t,uint32_t);
 typedef int (__attribute__((ms_abi)) *ensureBeadLut_fn)(void*);  // returns bool (int)
 
+/* MSVC x64 std::vector layout as passed by value on the stack: {first,last,end} */
+typedef struct { uint32_t* f; uint32_t* l; uint32_t* e; } VecU32;
+typedef struct { float* f; float* l; float* e; } VecF32;
+
 static HMODULE hmod;
 static FARPROC getord(int ord) {
     FARPROC p = GetProcAddress(hmod, (LPCSTR)(intptr_t)ord);
@@ -35,16 +39,13 @@ int main(void) {
     ctor(obj);
 
     uint32_t cols[2] = {29, 28};
-    // VecU32 layout: {f, l, e}
-    uint32_t* vcols_f = cols;
-    uint32_t* vcols_l = cols + 2;
-    uint32_t* vcols_e = cols + 2;
+    VecU32 vcols = { cols, cols + 2, cols + 2 };
     float s3 = 1.7320508075688772f, one = 1.0f;
-    float* vs3_f = &s3; float* vs3_l = &s3+1; float* vs3_e = &s3+1;
-    float* vo_f = &one; float* vo_l = &one+1; float* vo_e = &one+1;
+    VecF32 vs3 = { &s3, &s3 + 1, &s3 + 1 };
+    VecF32 vo  = { &one, &one + 1, &one + 1 };
     int64_t P1=100000, P2=21168000, P3=11837000, P11=470053;
     uint32_t P4=15120, P5=6230, P6=19, P10=6, P12=120, P13=90;
-    init(obj, P1,P2,P3,P4,P5,P6, &vcols_f,&vs3_f,&vo_f, P10,P11,P12,P13);
+    init(obj, P1,P2,P3,P4,P5,P6, &vcols,&vs3,&vo, P10,P11,P12,P13);
     LOG("init done\n");
 
     int ok = ensureBeadLut(obj);

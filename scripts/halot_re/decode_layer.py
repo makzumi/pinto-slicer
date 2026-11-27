@@ -65,8 +65,12 @@ def get_layer_rle(data, layer_idx, layers_off):
     rec = layers_off + layer_idx * 120
     addr = struct.unpack('<I', data[rec+12:rec+16])[0]
     size = struct.unpack('<I', data[rec+16:rec+20])[0]
-    # Pixel data starts at rec+44 (after 44-byte def), length = size
-    rle = data[rec+44:rec+44+size]
+    # The 120-byte layer record only points at the layer blob.  The blob has a
+    # 44-byte motion/definition header and `size` counts that header, so the
+    # pixel-pair RLE is at addr+44 with length size-44 (NOT rec+44).
+    if size < 44:
+        raise ValueError(f"layer {layer_idx}: implausible blob size {size}")
+    rle = data[addr+44:addr+44+size-44]
     return rle, addr, size
 
 if __name__ == '__main__':
