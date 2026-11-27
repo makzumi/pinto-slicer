@@ -4,6 +4,26 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.28] - 2026-11-27
+
+### Changed
+
+- HALOT-X1 job files now compute the real per-layer backlight mask: each
+  layer lights only the LED zones its slice actually covers, instead of
+  lighting every zone. The 544-bit mask is derived from the same honeycomb
+  geometry and run-marking algorithm the printer's own slicer uses,
+  recovered by disassembling `cxdlp.dll`; research tools and notes live in
+  `scripts/halot_re/` and `docs/zone-mask-and-support-parity-handoff.md`.
+- The home button on the orientation cube is a bare house glyph that rides
+  the cube's corner, without its own background box.
+- The Persp/Ortho lens chips are icon buttons now: a converging cube for
+  perspective, a parallel-edged cube for orthographic.
+
+### Fixed
+
+- Support tips no longer push deeper into the model than the local wall is
+  thick, so thin walls keep their strength where a pinhead lands.
+
 ## [0.1.27] - 2026-11-26
 
 ### Fixed

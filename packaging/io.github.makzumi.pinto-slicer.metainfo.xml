@@ -45,6 +45,17 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.28" date="2026-11-27">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.28</url>
+      <description>
+        <p>The backlight now follows each layer's real footprint, and the viewport's corner controls are quieter.</p>
+        <ul>
+          <li>HALOT-X1 job files light only the LED zones each slice covers, computed from the printer's own honeycomb geometry.</li>
+          <li>Support tips stop short of piercing thin walls.</li>
+          <li>The orientation cube's home button and the Persp/Ortho chips are clean icons instead of labelled boxes.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.2" date="2026-11-16">
       <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2</url>
       <description>
