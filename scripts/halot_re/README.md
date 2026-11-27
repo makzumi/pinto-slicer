@@ -96,3 +96,10 @@ mesh and the exact `SepFilter` radius/mode (and the model-to-image matrix).
 Exact parity with a HALOT job therefore requires the same support geometry
 that HALOT Box used.  For a Pinto Slicer job the mask must be computed from
 Pinto's own model + support mesh; that is the intended writer path.
+
+The Rust port lives in `src/halot_x1_area.rs`: `compute_halot_x1_area_mask`
+clips each triangle to the layer, rasterises the projection into the 64 x 6230
+LUT-cell grid, and ORs the cells' beads.  It has unit tests for empty meshes,
+blocks above/below the layer, and a support above the layer.  It is not wired
+into `write_v4` yet: the CPU projection has not been benchmarked on production
+meshes, and the writer still uses the slice mask.
