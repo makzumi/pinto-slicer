@@ -318,6 +318,69 @@ mod tests {
     }
 
     #[test]
+    fn the_area_mask_covers_the_slice_footprint() {
+        let printer = printer();
+        let (w, h) = printer.native_res();
+        let build = printer.build;
+        let block = sample_block();
+        let sliced = crate::slicer::slice(std::slice::from_ref(&block), 0.05);
+        let layer = &sliced.layers[100];
+
+        let mut buf = Vec::new();
+        crate::slicer::fill_mask(
+            layer,
+            [-build[0] * 0.5, -build[1] * 0.5],
+            [build[0] * 0.5, build[1] * 0.5],
+            w,
+            h,
+            &mut buf,
+        );
+
+        let (range, bits) = build_halot_x1_lut();
+        let lit = crate::halot_x1_mask::compute_halot_x1_mask(&buf, &range, &bits);
+        let area = compute_halot_x1_area_mask(
+            std::slice::from_ref(&block),
+            layer.z,
+            AreaTransform::from_printer(&printer),
+            &range,
+            &bits,
+        );
+        let missing: u32 = lit
+            .iter()
+            .zip(area.iter())
+            .map(|(a, b)| (a & !b).count_ones())
+            .sum();
+        assert_eq!(missing, 0, "the area mask must cover the slice footprint");
+    }
+
+    #[test]
+    fn a_support_at_positive_y_lands_in_the_front_rows() {
+        let (range, bits) = build_halot_x1_lut();
+        let mut support = sample_block();
+        support.translate(Vec3::new(0.0, 30.0, 10.0)); // z=10..20, y=+30
+        let mask = compute_halot_x1_area_mask(
+            std::slice::from_ref(&support),
+            5.0,
+            AreaTransform::from_printer(&printer()),
+            &range,
+            &bits,
+        );
+        let mut min_row = HALOT_X1_ROWS;
+        let mut max_row = 0;
+        for bit in 0..HALOT_X1_MAX_BIT {
+            if mask[bit >> 3] & (1 << (7 - (bit & 7))) != 0 {
+                let row = bead_row(bit);
+                min_row = min_row.min(row);
+                max_row = max_row.max(row);
+            }
+        }
+        assert!(
+            min_row >= 10,
+            "a support at +Y must project to the front rows, got {min_row}..={max_row}"
+        );
+    }
+
+    #[test]
     fn slice_result_retains_the_source_meshes() {
         let block = sample_block();
         let sliced = crate::slicer::slice(std::slice::from_ref(&block), 0.5);
