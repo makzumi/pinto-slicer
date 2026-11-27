@@ -101,5 +101,8 @@ The Rust port lives in `src/halot_x1_area.rs`: `compute_halot_x1_area_mask`
 clips each triangle to the layer, rasterises the projection into the 64 x 6230
 LUT-cell grid, and ORs the cells' beads.  It has unit tests for empty meshes,
 blocks above/below the layer, and a support above the layer.  It is not wired
-into `write_v4` yet: the CPU projection has not been benchmarked on production
-meshes, and the writer still uses the slice mask.
+into `write_v4`; `SliceResult.area_meshes` now carries the source meshes, and
+the writer uses the area projection when they are present.  The CPU projection
+has not been benchmarked on production meshes yet.  The exact dumped LUT is
+embedded as the 29 KB `assets/halot_x1_lut.z`; regenerate it with
+`scripts/halot_re/gen_lut_asset.py` when a new dump is available.

@@ -12,9 +12,9 @@
 //! then OR-ed into the 68-byte mask.  That is the same cell granularity as
 //! `setBeadsForRange`; the optional `SepFilter` pass is not applied yet.
 //!
-//! This is deliberately independent of the writer.  `SliceResult` still only
-//! carries 2D layer segments; wiring the model + support mesh into export is a
-//! separate step.
+//! `SliceResult` carries the source `area_meshes`, and `write_v4` uses this
+//! projection when they are present.  A caller that only has 2D segments still
+//! gets the slice-mask fallback.
 
 use crate::config::PrinterProfile;
 use crate::halot_x1_mask::{
