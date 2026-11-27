@@ -13,9 +13,7 @@ use crate::config::{PrintSettings, PrinterProfile};
 use crate::formats::{self, Progress};
 use crate::slicer::SliceResult;
 
-#[path = "halot_x1_mask.rs"]
-mod halot_x1_mask;
-use halot_x1_mask::{build_halot_x1_lut, compute_halot_x1_mask, HALOT_X1_MASK_BYTES};
+use crate::halot_x1_mask::{build_halot_x1_lut, compute_halot_x1_mask, HALOT_X1_MASK_BYTES};
 
 const MAGIC: &[u8; 9] = b"CXSW3DV2\0";
 const PRINT_PARAMETERS_SIZE: usize = 68;
