@@ -344,11 +344,11 @@ mod tests {
         // covered, even if the synthetic wall adds a few boundary beads.
         let z = 530.0;
         let verts = vec![
-            Vec3::new(0.0, 5.42, z),
-            Vec3::new(-139.56, -53.84, z),
-            Vec3::new(-116.32, -68.8, z),
-            Vec3::new(116.32, -68.8, z),
-            Vec3::new(139.56, -53.84, z),
+            Vec3::new(0.0, 5.149, z),
+            Vec3::new(-97.704, -51.16, z),
+            Vec3::new(-81.424, -65.35, z),
+            Vec3::new(81.424, -65.35, z),
+            Vec3::new(97.704, -51.16, z),
         ];
         let fan = Mesh {
             verts,
@@ -376,7 +376,7 @@ mod tests {
             .map(|(a, b)| (a & b).count_ones())
             .sum();
         assert_eq!(inter, 178, "the fan must cover every L529 reference bead");
-        assert!(count(&mask) >= 178);
+        assert_eq!(count(&mask), 202, "the synthetic wall should add 24 edge beads");
     }
 
 }

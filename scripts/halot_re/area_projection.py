@@ -22,9 +22,9 @@ Typical use:
     python3 scripts/halot_re/area_projection.py --mesh samples/cube.stl --z 10 \
         --ref /path/to/reference.cxdlpv4 --ref-layer 200
 
-The default image mapping is the plate centre (7560, 3115) with 50 px/mm,
-which is close to the 15120x6230 HALOT X1 raster.  Use --scale/--center to
-match a different printer profile.
+The default image mapping is the plate centre (7560, 3115) with the
+HALOT-X1 pixel scales (15120/211.68 = 71.4286 px/mm in X, 6230/118.37 =
+52.6316 px/mm in Y).  Use --scale/--center to match a different profile.
 """
 from __future__ import annotations
 
@@ -121,7 +121,7 @@ def rasterise_area(
     z: float,
     *,
     center: tuple[float, float],
-    scale: float,
+    scale: tuple[float, float],
     flip_y: bool,
 ) -> np.ndarray:
     """Rasterise the orthographic projection of all triangles above z."""
@@ -134,8 +134,8 @@ def rasterise_area(
             continue
         pts = []
         for x, y, _ in poly:
-            u = cx + x * scale
-            v = cy - y * scale if flip_y else cy + y * scale
+            u = cx + x * scale[0]
+            v = cy - y * scale[1] if flip_y else cy + y * scale[1]
             pts.append((u, v))
         draw.polygon(pts, fill=1)
     return np.asarray(img, dtype=np.uint8)
@@ -195,8 +195,8 @@ def main() -> int:
     ap.add_argument("--lut-dir", default="/tmp/halot_re")
     ap.add_argument("--center", default="7560,3115",
                     help="image X,Y of model origin (default: plate centre)")
-    ap.add_argument("--scale", type=float, default=50.0,
-                    help="pixels per mm (default: 50)")
+    ap.add_argument("--scale", default="71.4286,52.6316",
+                    help="pixels per mm, X or X,Y (default: HALOT-X1 71.4286,52.6316)")
     ap.add_argument("--flip-y", action="store_true", default=True,
                     help="model +Y maps to image -Y (default: true)")
     ap.add_argument("--no-flip-y", dest="flip_y", action="store_false")
@@ -212,11 +212,18 @@ def main() -> int:
     center = tuple(float(v) for v in args.center.split(","))
     if len(center) != 2:
         ap.error("--center must be X,Y")
+    scale_parts = tuple(float(v) for v in str(args.scale).split(","))
+    if len(scale_parts) == 1:
+        scale = (scale_parts[0], scale_parts[0])
+    elif len(scale_parts) == 2:
+        scale = scale_parts
+    else:
+        ap.error("--scale must be X or X,Y")
 
     tris = np.concatenate([load_stl(p) for p in args.mesh], axis=0)
     area = rasterise_area(
         tris, args.z,
-        center=center, scale=args.scale, flip_y=args.flip_y,
+        center=center, scale=scale, flip_y=args.flip_y,
     )
     area = apply_filter(area, args.filter, args.radius)
 
