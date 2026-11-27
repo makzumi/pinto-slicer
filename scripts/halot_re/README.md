@@ -90,8 +90,17 @@ geometry is the support/area mesh, not the slice.
 A 20 mm cube at z=10 gives 22 beads.  Adding a 6x6x10 mm column at x=40 gives
 29 beads at z=5 (the column is above the clip) and 22 beads at z=15 (the
 column is below the clip), which is the expected half-space behaviour.  The
-script uses the exact dumped LUT; the remaining unknowns are HALOT's support
-mesh and the exact `SepFilter` radius/mode (and the model-to-image matrix).
+default mapping uses the HALOT-X1 pixel scales (71.4286 px/mm in X and
+52.6316 px/mm in Y); the earlier prototype's 50 px/mm default was wrong.
+
+As a calibration check, a synthetic support wall matching the layer-529 fan
+covers all 178 stored beads (202 total, Jaccard 0.881).  The extra 24 are
+boundary cells from the smooth synthetic edge, not a transform error.  The
+same check is a Rust regression test:
+`synthetic_support_fan_covers_the_reference_l529_mask`.
+
+The script uses the exact dumped LUT; the remaining unknowns are HALOT's
+support mesh and the exact `SepFilter` radius/mode.
 
 Exact parity with a HALOT job therefore requires the same support geometry
 that HALOT Box used.  For a Pinto Slicer job the mask must be computed from
@@ -100,9 +109,10 @@ Pinto's own model + support mesh; that is the intended writer path.
 The Rust port lives in `src/halot_x1_area.rs`: `compute_halot_x1_area_mask`
 clips each triangle to the layer, rasterises the projection into the 64 x 6230
 LUT-cell grid, and ORs the cells' beads.  It has unit tests for empty meshes,
-blocks above/below the layer, and a support above the layer.  It is not wired
-into `write_v4`; `SliceResult.area_meshes` now carries the source meshes, and
-the writer uses the area projection when they are present.  The CPU projection
+blocks above/below the layer, a support above the layer, and the synthetic
+layer-529 fan.  It is wired into `write_v4`: `SliceResult.area_meshes` carries
+the source meshes, and the writer uses the area projection when they are
+present.  The CPU projection
 has not been benchmarked on production meshes yet.  The exact dumped LUT is
 embedded as the 29 KB `assets/halot_x1_lut.z`; regenerate it with
 `scripts/halot_re/gen_lut_asset.py` when a new dump is available.
