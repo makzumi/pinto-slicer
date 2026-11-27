@@ -188,6 +188,12 @@ fn prepare_head(input: &Tip, cfg: &SupportConfig, tree: &Bvh) -> Option<Tip> {
             let mut head = super::tips::make_tip(input.pos, direction * -1.0, &local, input.island);
             head.id = input.id;
             head.model_id = input.model_id;
+            // A pinhead presses `contact_depth` into the model; on a thin wall
+            // it would come out the far side. Cap the depth at half the local
+            // thickness so the tip always stops inside the material.
+            if let Some(thickness) = tree.wall_thickness(head.pos, head.axis) {
+                head.contact_depth = head.contact_depth.min((thickness * 0.5).max(0.05));
+            }
             let width = (head.lower_end() - head.pos).length();
             if head.pos.z + width * direction.z < 0.0 {
                 continue;

@@ -285,6 +285,24 @@ fn a_flat_block_gets_a_network_and_a_base_plate() {
 }
 
 #[test]
+fn a_pinhead_stops_inside_a_thin_wall() {
+    // A 0.5 mm shell floating above the plate. A pinhead would normally press
+    // 0.4 mm into the surface; that would nearly cross the shell, so it must
+    // be capped to half the local thickness instead.
+    let m = block((24.0, 24.0, 0.5), 10.0);
+    let cfg = SupportConfig::default();
+    let model = run(std::slice::from_ref(&m), &cfg);
+    assert!(!model.tips.is_empty(), "the raised shell needs supports");
+    for tip in &model.tips {
+        assert!(
+            tip.contact_depth <= 0.25 + 1e-4,
+            "a pinhead presses {:?} mm into a 0.5 mm wall",
+            tip.contact_depth
+        );
+    }
+}
+
+#[test]
 fn an_island_gets_a_tip() {
     let m = sphere(10.0, 25.0);
     let cfg = SupportConfig::default();

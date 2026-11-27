@@ -158,6 +158,15 @@ impl Bvh {
         self.ray_hit(from, dir, tmax).map(|(t, _)| t)
     }
 
+    /// How far `dir` travels before it leaves the solid — the local wall
+    /// thickness along a direction that points into the model from a point
+    /// `pos` on its surface. Starts just inside the surface so the near face
+    /// itself is not counted as the exit.
+    pub fn wall_thickness(&self, pos: Vec3, dir: Vec3) -> Option<f32> {
+        let from = pos + dir * 1e-2;
+        self.ray(from, dir, 1.0e4).map(|t| t + 1e-2)
+    }
+
     /// Is this point inside the solid? Three rays in different directions
     /// vote, so a ray slipping exactly along a triangle edge cannot decide.
     pub fn inside(&self, p: Vec3) -> bool {
