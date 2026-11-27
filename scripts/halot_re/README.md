@@ -15,6 +15,7 @@ real `.cxdlpv4` exported by HALOT BOX from an X1 (R009) machine.
 | `roundtrip.c` | Calls the real encoder (`encodeCtbImage_16K_withNoAreaPartData_3bit`, ordinal 302) on a raw bitmap to compare its mask output with the file on disk. Builds, but its `initLampBeadCal` arguments still need the same Vec3 fix as `lutdump2.c`; the LUT build is very slow under Wine. |
 | `parity.py` | Exact-LUT parity harness: decodes a real `.cxdlpv4`, computes the mask with the dumped `ensureBeadLut` LUT (`--model lit`) or an area-part approximation (`hull`, `cone`, `hybrid`), and reports per-layer Jaccard / fp / fn. `--model all` compares all four in one pass. |
 | `simulate.py` | Reimplements the disassembled algorithm (func `0x1800270b0` + `getsubzonedata`) in Python against the dumped LUT, and compares with the mask stored in a real `.cxdlpv4`. Its cached `layer_100.npy` predates the decoder fix and must be regenerated. |
+| `area_projection.py` | Prototype of the support-aware area mask: clips a mesh at the layer Z, rasterises the half-space projection (FlatWhite), optionally applies the SepFilter max/min/box pass, extracts white runs, and maps them through the dumped LUT. Accepts model + support STLs and prints the 542-bit mask. |
 | `decode_layer.py` | Decodes one layer's pixel-pair RLE from a real `.cxdlpv4` into a bitmap for feeding the tools above. Fixed: the RLE lives at `record.addr + 44` with length `record.size - 44`, not at `record + 44`. |
 
 Build pattern (in the HALOT BOX drive, adjust the `Z:\` paths inside):
@@ -69,3 +70,29 @@ What the disassembly established (see also
   -581.0/-290.5) and a diamond half-width, so it is not bit-identical.
 - The LUT is necessary but not sufficient: exact-LUT lit-pixel parity is only
   ~0.61 Jaccard, and the stored field contains an extra area-part component.
+
+
+Area-part projection (support-aware)
+
+The stored mask is not a function of the 3-bit slice.  Projecting the decoded
+4.6 slices onto the LUT gives, for layer 529, only 73 bits (the thin strip),
+while the stored mask is a 178-bit fan from row 8 to row 18.  The same fan is
+present at 440..530 even though the part there is only the strip.  The GPU
+pipeline explains it: `FlatWhite` renders the mesh half-space above the layer
+clip as solid white, `SepFilter` optionally dilates/erodes/blurs it, and
+`getsubzonedata` turns its white runs into the 542-bit bead mask.  The missing
+geometry is the support/area mesh, not the slice.
+
+`area_projection.py` is the executable prototype:
+
+    python3 scripts/halot_re/area_projection.py --mesh samples/cube.stl --z 10
+
+A 20 mm cube at z=10 gives 22 beads.  Adding a 6x6x10 mm column at x=40 gives
+29 beads at z=5 (the column is above the clip) and 22 beads at z=15 (the
+column is below the clip), which is the expected half-space behaviour.  The
+script uses the exact dumped LUT; the remaining unknowns are HALOT's support
+mesh and the exact `SepFilter` radius/mode (and the model-to-image matrix).
+
+Exact parity with a HALOT job therefore requires the same support geometry
+that HALOT Box used.  For a Pinto Slicer job the mask must be computed from
+Pinto's own model + support mesh; that is the intended writer path.
