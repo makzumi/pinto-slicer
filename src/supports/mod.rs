@@ -214,20 +214,13 @@ impl SupportModel {
             meshgen::append(&mut m, &meshgen::ball(b.to, b.diameter * 0.5, sides.max(8)));
         }
         for t in &self.trunks {
-            // A trunk that stands on the platform is a cone: fat at the
-            // foot, slim where the tips meet the model, the way the
-            // columns this machine already prints are shaped. A trunk
-            // held from the model stays a straight stick: it hangs from
-            // its bond, and a flare there would only print against the
-            // piece.
-            let base = if t.bottom.z < 0.1 {
-                (self.cfg.trunk_diameter_max * 0.5).max(t.diameter * 0.5)
-            } else {
-                t.diameter * 0.5
-            };
+            // HALOT Box columns keep one thickness from the raft to the
+            // model. No foot flare and no taper: the base pad is the only
+            // place that gets wider.
+            let r = t.diameter * 0.5;
             meshgen::append(
                 &mut m,
-                &meshgen::frustum(t.bottom, base, t.top, t.diameter * 0.5, sides),
+                &meshgen::frustum(t.bottom, r, t.top, r, sides),
             );
         }
         for f in &self.feet {

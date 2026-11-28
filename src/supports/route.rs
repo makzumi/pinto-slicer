@@ -148,7 +148,23 @@ pub fn route(tips: &[Tip], cfg: &SupportConfig, tree: &Bvh, stats: &mut Stats) -
         .into_iter()
         .filter(|head| builder.routed.contains(&head.id))
         .collect();
+    finalize_diameters(&mut out, cfg);
     out
+}
+
+/// Size the finished tree from the settings, not the tip that happened to
+/// create it. HALOT Box prints one shaft thickness everywhere, whether the
+/// column stands on the raft or grows down from the model, so every trunk
+/// uses `trunk_diameter` and every branch uses `branch_diameter`.
+fn finalize_diameters(out: &mut Pieces, cfg: &SupportConfig) {
+    let trunk_d = cfg.trunk_diameter.max(0.2);
+    for trunk in &mut out.trunks {
+        trunk.diameter = trunk_d;
+    }
+    let branch_d = cfg.branch_diameter.max(0.2);
+    for branch in &mut out.branches {
+        branch.diameter = branch_d;
+    }
 }
 
 fn head_radius(head: &Tip) -> f32 {

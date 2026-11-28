@@ -765,6 +765,45 @@ fn close_ground_heads_share_a_prusa_central_pillar() {
 }
 
 #[test]
+fn finished_struts_follow_the_configured_diameters() {
+    let cfg = SupportConfig::default();
+    let mut first = tips::make_tip(
+        Vec3::new(0.0, 0.0, 10.0),
+        Vec3::new(0.0, 0.0, -1.0),
+        &cfg,
+        false,
+    );
+    first.id = 0;
+    let mut second = tips::make_tip(
+        Vec3::new(2.0, 0.0, 10.0),
+        Vec3::new(0.0, 0.0, -1.0),
+        &cfg,
+        false,
+    );
+    second.id = 1;
+    let tree = bvh::Bvh::from_meshes(&[]);
+    let mut stats = Stats::default();
+    let pieces = route::route(&[first, second], &cfg, &tree, &mut stats);
+    let trunk = &pieces.trunks[0];
+    assert_eq!(trunk.tip_ids.len(), 2);
+    let expected = cfg.trunk_diameter;
+    assert!(
+        (trunk.diameter - expected).abs() < 1e-4,
+        "a two-tip trunk is {:.3} mm, not the configured {:.3} mm",
+        trunk.diameter,
+        expected
+    );
+    for branch in &pieces.branches {
+        assert!(
+            (branch.diameter - cfg.branch_diameter).abs() < 1e-4,
+            "branch is {:.3} mm, not the configured {:.3} mm",
+            branch.diameter,
+            cfg.branch_diameter
+        );
+    }
+}
+
+#[test]
 fn a_tall_network_gets_braces() {
     // Two tall, thin trunks standing near each other: the strength stage must
     // tie them together. A pair far apart must be left alone.
@@ -1633,10 +1672,10 @@ fn scratch_orphans() {
 }
 
 #[test]
-fn standing_trunks_taper_from_a_fat_foot() {
-    // A trunk on the platform becomes a cone: `trunk_diameter_max` wide at
-    // the foot, `trunk_diameter` wide where the tips meet the model. A trunk
-    // held from the model stays a straight stick.
+fn every_trunk_keeps_one_thickness() {
+    // HALOT Box columns do not taper: a standing trunk is as wide at the
+    // raft as where the tips meet it, and a trunk hanging from the model is
+    // the same width. Only the separate base pad is wider.
     let mut model = SupportModel {
         cfg: crate::supports::config::SupportConfig::default(),
         ..SupportModel::default()
@@ -1673,8 +1712,8 @@ fn standing_trunks_taper_from_a_fat_foot() {
     let base = widest_near(&mesh, 0.0, 0.0);
     let top = widest_near(&mesh, 0.0, 6.0);
     assert!(
-        (base - 1.25).abs() < 0.05,
-        "the standing trunk starts {base} wide, not 1.25"
+        (base - 0.8).abs() < 0.05,
+        "the standing trunk starts {base} wide, not 0.8"
     );
     assert!(
         (top - 0.8).abs() < 0.05,
