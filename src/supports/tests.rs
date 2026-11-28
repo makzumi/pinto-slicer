@@ -159,6 +159,18 @@ fn run(meshes: &[Mesh], cfg: &SupportConfig) -> SupportModel {
     generate(meshes, cfg, &cancel)
 }
 
+fn assert_closed_mesh(name: &str, mesh: &Mesh) {
+    let mut edges: std::collections::HashMap<(u32, u32), i32> = std::collections::HashMap::new();
+    for t in &mesh.tris {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let key = if a < b { (a, b) } else { (b, a) };
+            *edges.entry(key).or_insert(0) += 1;
+        }
+    }
+    let open = edges.values().filter(|c| **c % 2 != 0).count();
+    assert_eq!(open, 0, "{name} has {open} open edges");
+}
+
 fn mesh_triangle_count(m: &SupportModel) -> usize {
     m.mesh(12).tris.len()
 }
@@ -544,6 +556,12 @@ fn the_base_plate_can_be_switched_off() {
         mesh_triangle_count(&without) > 0,
         "the support mesh is still there without the plate"
     );
+    let mesh = without.mesh(16);
+    let lowest = mesh.verts.iter().map(|v| v.z).fold(f32::MAX, f32::min);
+    assert!(
+        lowest >= -1e-3,
+        "the base-off braces stay above the platform, lowest z={lowest:.3}"
+    );
 }
 
 #[test]
@@ -778,7 +796,7 @@ fn flat_overhang_heads_still_share_a_column() {
     );
     first.id = 0;
     let mut second = tips::make_tip(
-        Vec3::new(3.0, 0.0, 6.0),
+        Vec3::new(4.0, 0.0, 6.0),
         Vec3::new(0.0, 0.0, -1.0),
         &cfg,
         false,
@@ -1224,9 +1242,9 @@ fn a_ball_slices_to_a_solid_disk() {
 #[test]
 fn a_wall_that_barely_faces_down_gets_support_unless_overhangs_only() {
     // A slab tilted 70° from horizontal: its underside is a hair past
-    // vertical, far shallower than the 45° setting would ever flag. HALOT
-    // Box's working profile (Overhangs Only unchecked) still gives it a
-    // field of tips; the checked box leaves it bare.
+    // vertical, far shallower than the 45° setting would ever flag. With
+    // Overhangs Only unchecked it still gets a field of tips; with the
+    // default checked box it stays bare.
     let cfg = SupportConfig {
         overhangs_only: false,
         ..SupportConfig::default()
@@ -1356,13 +1374,13 @@ fn a_default_flat_slab_gets_branches_and_braces() {
 
 #[test]
 fn short_columns_still_get_a_brace() {
-    // Default lift leaves a ~2.3 mm column. The brace start must follow the
-    // base top and the step must fit that short span, otherwise the default
-    // support lattice has no braces at all.
+    // Default lift leaves a ~3.0 mm column above the tip's lower ball. The
+    // brace start must clear the pad and the step must fit that short span,
+    // otherwise the default support lattice has no braces at all.
     let trunk = |x: f32, id: usize| Trunk {
         id,
         bottom: Vec3::new(x, 0.0, 0.0),
-        top: Vec3::new(x, 0.0, 2.3),
+        top: Vec3::new(x, 0.0, 3.025),
         diameter: 0.85,
         tip_ids: vec![id],
         model_id: 0,
@@ -1383,7 +1401,7 @@ fn short_columns_still_get_a_brace() {
         "short columns still get one brace"
     );
     for brace in &pieces.braces {
-        assert!(brace.a.z <= 2.3 + 1e-4 && brace.b.z <= 2.3 + 1e-4);
+        assert!(brace.a.z <= 3.025 + 1e-4 && brace.b.z <= 3.025 + 1e-4);
         assert!(brace.a.z >= 1.2 - 1e-4 && brace.b.z >= 1.2 - 1e-4);
     }
 }
@@ -1573,10 +1591,9 @@ fn a_dense_forest_breaks_its_sheet_into_capped_pads() {
 }
 
 #[test]
-fn raft_mode_welds_a_forest_into_one_sheet() {
-    // The reference slicer prints a few monolithic sheets, not dozens of
-    // little pads: with `raft` on (the default) the area cap is skipped and
-    // one connected forest gets one hull-shaped pad.
+fn the_retired_raft_flag_never_makes_a_sheet() {
+    // `raft` is still read from old files, but it no longer changes the
+    // base: one connected forest must still split into capped pads.
     let foot = |id: usize, x: f32, y: f32| Foot {
         id,
         pos: Vec3::new(x, y, 0.0),
@@ -1595,10 +1612,9 @@ fn raft_mode_welds_a_forest_into_one_sheet() {
         }
     }
     let plates = base::plates_for(&feet, &cfg);
-    assert_eq!(
-        plates.len(),
-        1,
-        "raft mode welds a forest into one sheet, got {}",
+    assert!(
+        plates.len() > 1,
+        "the retired raft flag must not weld the forest into one sheet, got {}",
         plates.len()
     );
     let area = |p: &Plate| {
@@ -1614,8 +1630,8 @@ fn raft_mode_welds_a_forest_into_one_sheet() {
             * 0.5
     };
     assert!(
-        area(&plates[0]) > 900.0,
-        "the raft sheet is not area-capped"
+        plates.iter().all(|p| area(p) <= 900.0 + 1e-3),
+        "every pad still obeys the area cap"
     );
 }
 
@@ -1816,4 +1832,81 @@ fn every_trunk_keeps_one_thickness() {
         (anchor_bottom - 0.8).abs() < 0.05 && (anchor_top - 0.8).abs() < 0.05,
         "the hanging trunk stays 0.8 wide, not {anchor_bottom} and {anchor_top}"
     );
+}
+
+#[test]
+fn a_thick_base_keeps_the_flat_bridge_above_the_pad() {
+    // A 2 mm plate used to put the branch floor under the pad and the brace
+    // start above the column, so a flat roof got branches buried in the base
+    // and no braces at all.
+    let m = block((24.0, 24.0, 8.0), 6.0);
+    let mut cfg = SupportConfig::default();
+    cfg.base.plate_thickness = 2.0;
+    let model = run(std::slice::from_ref(&m), &cfg);
+    assert!(!model.branches.is_empty(), "the flat roof still bridges");
+    assert!(!model.braces.is_empty(), "a 2 mm plate still gets braces");
+    let pad_surface = cfg.base.surface_height().max(meshgen::FOOT_HEIGHT);
+    for branch in &model.branches {
+        assert!(
+            branch.to.z >= pad_surface + branch.diameter * 0.5 - 1e-3,
+            "branch end {:.3} is inside the pad surface {:.3}",
+            branch.to.z,
+            pad_surface
+        );
+    }
+}
+
+#[test]
+fn a_brace_with_the_base_off_stays_above_the_platform() {
+    let m = block((20.0, 20.0, 8.0), 6.0);
+    let mut cfg = SupportConfig::default();
+    cfg.base.enabled = false;
+    let model = run(std::slice::from_ref(&m), &cfg);
+    assert!(!model.braces.is_empty(), "the columns are still tied");
+    let mesh = model.mesh(16);
+    let lowest = mesh.verts.iter().map(|v| v.z).fold(f32::MAX, f32::min);
+    assert!(
+        lowest >= -1e-3,
+        "a brace end ball dips below the platform at z={lowest:.3}"
+    );
+}
+
+#[test]
+fn a_low_lift_never_raises_a_bridge_above_its_source() {
+    // At a 3 mm lift the ideal branch landing is below the pad. The clamp
+    // must not push the landing above the tip; rejecting is better than an
+    // ascending bridge that starts inside the base.
+    let m = block((20.0, 20.0, 8.0), 3.0);
+    let cfg = SupportConfig::default();
+    let model = run(std::slice::from_ref(&m), &cfg);
+    for branch in &model.branches {
+        assert!(
+            branch.to.z < branch.from.z - 1e-4,
+            "branch climbs from {:.3} to {:.3}",
+            branch.from.z,
+            branch.to.z
+        );
+    }
+}
+
+#[test]
+fn a_zero_margin_pad_drops_the_inverted_lip() {
+    // Margin 0 leaves only the foot disc. The 15-degree lip wants to inset
+    // farther than that disc's inradius; the plate must fall back to the
+    // two-ring slab instead of turning the inner ring inside out.
+    let foot = Foot {
+        id: 0,
+        pos: Vec3::ZERO,
+        diameter: 1.5,
+        trunk_id: 0,
+        model_id: 0,
+    };
+    let cfg = crate::supports::config::BaseConfig {
+        margin: 0.0,
+        ..crate::supports::config::BaseConfig::default()
+    };
+    let plates = base::plates_for(std::slice::from_ref(&foot), &cfg);
+    assert_eq!(plates.len(), 1);
+    let mesh = meshgen::plate(&plates[0]);
+    assert_closed_mesh("zero-margin pad", &mesh);
 }

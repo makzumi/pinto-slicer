@@ -63,11 +63,9 @@ pub fn plates_for(feet: &[Foot], cfg: &BaseConfig) -> Vec<Plate> {
     let mut plates = Vec::new();
     for (model_id, subset) in &by_model {
         for connected in connected_feet(subset, cfg.margin.max(0.0)) {
-            let polys = if cfg.raft {
-                vec![outline(&connected, cfg.margin.max(0.0))]
-            } else {
-                pad_polys(connected, cfg.margin.max(0.0), &[])
-            };
+            // The old `raft` flag is still read from old files, but a sheet
+            // is never the right base here: always split into capped pads.
+            let polys = pad_polys(connected, cfg.margin.max(0.0), &[]);
             for poly in polys {
                 if poly.len() >= 3 {
                     plates.push(Plate {

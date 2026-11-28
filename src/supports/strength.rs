@@ -4,6 +4,7 @@
 
 use super::bvh::Bvh;
 use super::config::SupportConfig;
+use super::meshgen;
 use super::route::Pieces;
 use super::{Brace, Trunk};
 use crate::mesh::Vec3;
@@ -11,17 +12,16 @@ use crate::mesh::Vec3;
 const MAX_BRACES: usize = 4000;
 const MAX_LINK_DISTANCE: f32 = 10.0;
 const CASCADE_NEIGHBORS: usize = 4;
-/// The top of the base's chamfer. Braces start here instead of at a fixed
-/// height so a short column can still be tied; a fixed 3 mm start made the
-/// default 6 mm lift produce no bracing at all.
-fn base_top(cfg: &SupportConfig) -> f32 {
-    if !cfg.base.enabled || cfg.base.plate_thickness <= 0.05 {
-        return 0.0;
-    }
-    let thickness = cfg.base.plate_thickness;
-    let angle = cfg.base.chamfer_deg.clamp(15.0, 80.0).to_radians();
-    let chamfer = (thickness * angle.tan()).min(thickness * 0.6).max(0.05);
-    thickness + chamfer / angle.tan().max(1e-4)
+/// Lowest safe centre for a brace end: clear the base's dropped centre
+/// (or the bare foot when the base is off) plus the brace's own radius.
+/// Starting at a fixed 3 mm made short columns brace-free; starting at the
+/// plate top put the end ball through the pad.
+fn brace_floor(cfg: &SupportConfig, radius: f32) -> f32 {
+    let surface = cfg
+        .base
+        .surface_height()
+        .max(meshgen::FOOT_HEIGHT);
+    surface + radius + 0.02
 }
 /// Double crosses only appear between columns this far apart. Close pairs
 /// get a plain zig-zag; giving every pair both diagonals is what made the
@@ -96,7 +96,7 @@ fn interconnect(
         return false;
     }
     let top = a.top.z.min(b.top.z);
-    let bottom = a.bottom.z.max(b.bottom.z).max(base_top(cfg));
+    let bottom = a.bottom.z.max(b.bottom.z).max(brace_floor(cfg, radius));
     if top - bottom < 0.25 {
         return false;
     }
@@ -134,7 +134,11 @@ fn interconnect(
             let reverse_to = Vec3::new(from_trunk.bottom.x, from_trunk.bottom.y, z - step);
             // The two legs of a cross meet by design, so the forward leg just
             // pushed is excused; anything else still needs its daylight.
-            let excuse = braces.last().map(|_| braces.len() - 1);
+            let excuse = if added {
+                Some(braces.len() - 1)
+            } else {
+                None
+            };
             if tree.segment_clear(reverse_from, reverse_to, radius)
                 && clear_of_columns(reverse_from, reverse_to, radius, a, b, trunks)
                 && clear_of_braces(reverse_from, reverse_to, radius, braces, excuse)

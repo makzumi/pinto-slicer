@@ -55,11 +55,26 @@ pub struct BaseConfig {
     pub plate_thickness: f32,
     pub margin: f32,
     pub chamfer_deg: f32,
-    /// One monolithic sheet per connected group of feet instead of splitting
-    /// into many small capped pads. Left in the file format for older
-    /// projects, but no longer exposed in the panel.
+    /// Legacy monolithic-sheet switch. Kept in the file format so old
+    /// projects still deserialize, but pads are always split now; the panel
+    /// no longer exposes it and `plates_for` ignores it.
     #[serde(default)]
     pub raft: bool,
+}
+
+impl BaseConfig {
+    /// Height of the pad's top surface at a trunk axis. The rim stays at
+    /// `plate_thickness`; the middle is dropped by the chamfer, so a brace
+    /// landing on the axis has to clear this lower surface, not the rim.
+    pub fn surface_height(&self) -> f32 {
+        if !self.enabled || self.plate_thickness <= 0.05 {
+            return 0.0;
+        }
+        let thickness = self.plate_thickness;
+        let angle = self.chamfer_deg.clamp(15.0, 80.0).to_radians();
+        let chamfer = (thickness * angle.tan()).min(thickness * 0.6).max(0.05);
+        (thickness - chamfer).max(0.0)
+    }
 }
 
 impl Default for BaseConfig {
@@ -138,19 +153,17 @@ pub struct SupportConfig {
     /// With `overhangs_only` off, every face that points down is flagged
     /// instead and the angle only matters for the debug view.
     pub overhang_angle_deg: f32,
-    /// HALOT Box calls the same switch "Overhangs Only". Off (the proven
-    /// profile): shallow slopes and flat undersides get support too. On:
-    /// only faces steeper than `overhang_angle_deg`.
+    /// HALOT Box calls the same switch "Overhangs Only". On (the default):
+    /// only faces steeper than `overhang_angle_deg` get support. Off: every
+    /// downward face gets support too.
     pub overhangs_only: bool,
     pub tip: TipConfig,
     pub branch_angle_deg: f32,
     pub branch_diameter: f32,
-    /// Trunk width where the tips meet. A trunk carrying many tips grows
-    /// half again wider ([`SupportConfig::trunk_diameter_for`]).
+    /// Shaft width, used unchanged from the raft to the model.
     pub trunk_diameter: f32,
-    /// Trunk width at the foot: a trunk that stands on the platform is a
-    /// cone, this wide at the bottom and slim where the model meets it —
-    /// the shape of the columns the machine already prints well.
+    /// Legacy width-at-the-foot value. Standing trunks are straight now;
+    /// kept so old projects and presets still load.
     pub trunk_diameter_max: f32,
     pub foot_diameter: f32,
     pub base: BaseConfig,
@@ -172,8 +185,7 @@ impl Default for SupportConfig {
             branch_angle_deg: 45.0,
             branch_diameter: 0.85,
             trunk_diameter: 0.85,
-            // HALOT Box's columns are cones: ~2.5 mm at the foot, slimming
-            // to the shaft width where the model meets it.
+            // Legacy value, kept for old project/preset compatibility.
             trunk_diameter_max: 2.5,
             foot_diameter: 1.5,
             base: BaseConfig::default(),
@@ -252,9 +264,8 @@ impl SupportConfig {
         (self.tip.lower_diameter * 0.5).max(0.1)
     }
 
-    /// Trunk width for a trunk carrying `tips` tips: 0.85 -> 1.275 mm where
-    /// the tips meet. The foot of a standing trunk is `trunk_diameter_max`
-    /// wide instead.
+    /// Legacy multi-tip width helper. Trunks are uniform now; kept for the
+    /// old preset math and project compatibility.
     pub fn trunk_diameter_for(&self, tips: usize) -> f32 {
         let t = ((tips as f32 - 1.0) / 6.0).clamp(0.0, 1.0);
         self.trunk_diameter * (1.0 + 0.5 * t)

@@ -136,9 +136,13 @@ pub fn tip(t: &Tip, sides: usize) -> Mesh {
     m
 }
 
+/// Height of the little foot cone under a standing trunk. Braces have to
+/// stay above it when the base plate is off.
+pub const FOOT_HEIGHT: f32 = 0.8;
+
 /// A foot: a short cone standing on the platform, under its trunk.
 pub fn foot(f: &Foot) -> Mesh {
-    let h = 0.8;
+    let h = FOOT_HEIGHT;
     let r = (f.diameter * 0.5).max(0.3);
     let z = f.pos.z;
     frustum(
@@ -148,6 +152,18 @@ pub fn foot(f: &Foot) -> Mesh {
         r * 0.75,
         16,
     )
+}
+
+/// Twice the signed area of a polygon. Used to notice an inset ring that
+/// collapsed or crossed itself.
+fn signed_area2(poly: &[(f32, f32)]) -> f32 {
+    let mut a = 0.0;
+    for i in 0..poly.len() {
+        let (x1, y1) = poly[i];
+        let (x2, y2) = poly[(i + 1) % poly.len()];
+        a += x1 * y2 - x2 * y1;
+    }
+    a
 }
 
 /// A pad under a group of feet: straight sides, a rim that keeps the
@@ -163,7 +179,15 @@ pub fn plate(p: &Plate) -> Mesh {
     let t = p.thickness.max(0.1);
     let c = p.chamfer.clamp(0.0, t * 0.7);
     let inner = inset(&p.poly, p.chamfer_run.max(0.0));
-    let has_inner = inner.len() == n;
+    // A zero margin can make the chamfer-run wider than the pad. Insetting
+    // then turns the inner ring inside out; dropping the lip keeps the mesh
+    // closed instead of self-intersecting.
+    let outer_area = signed_area2(&p.poly);
+    let inner_area = signed_area2(&inner);
+    let has_inner = inner.len() == n
+        && inner_area.abs() > 1e-4
+        && (outer_area > 0.0) == (inner_area > 0.0)
+        && inner_area.abs() < outer_area.abs();
     let rings = if has_inner { 3 } else { 2 };
     // The rim ring stands at the pad's full height; the middle sits
     // `chamfer` lower, so the edge is the thickest part of the pad.

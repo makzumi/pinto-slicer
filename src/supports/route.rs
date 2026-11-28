@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::bvh::Bvh;
 use super::config::SupportConfig;
+use super::meshgen;
 use super::{Branch, Foot, Stats, Tip, Trunk};
 use crate::mesh::Vec3;
 
@@ -389,9 +390,9 @@ impl<'a> Builder<'a> {
         let source = head.lower_end();
         let top = trunk.top;
         let bottom = trunk.bottom;
-        let radius = head_radius(head);
+        let radius = head_radius(head).max(self.cfg.branch_diameter * 0.5);
         let normal_radius = (self.cfg.trunk_diameter * 0.5).max(0.05);
-        let max_length = (MAX_BRIDGE_LENGTH * radius / normal_radius).max(2.0);
+        let max_length = (MAX_BRIDGE_LENGTH * radius / normal_radius).max(MAX_BRIDGE_LENGTH);
         let dxy = ((source.x - top.x).powi(2) + (source.y - top.y).powi(2)).sqrt();
         let distance = (source - top).length();
         let slope = (top.z - source.z).atan2(dxy);
@@ -413,16 +414,40 @@ impl<'a> Builder<'a> {
             // A flat overhang puts the ideal 45-degree landing below the
             // plate. Clamp it to the lowest usable point on the column
             // instead of dropping the whole bridge: two heads over a flat
-            // ceiling should still share one pillar.
-            let floor = (bottom.z + 0.3).max(4.0 * radius + 0.05).min(top.z);
+            // ceiling should still share one pillar. The floor has to clear
+            // the pad's dropped centre (or the bare foot) plus the branch
+            // ball, not just the platform.
+            let base_clear = if bottom.z < 0.5 {
+                self.cfg
+                    .base
+                    .surface_height()
+                    .max(meshgen::FOOT_HEIGHT)
+                    + radius
+                    + 0.02
+            } else {
+                0.0
+            };
+            let floor = (bottom.z + 0.3)
+                .max(4.0 * radius + 0.05)
+                .max(base_clear)
+                .min(top.z);
             if z < floor {
                 z = floor;
             }
             let branch_start = via.unwrap_or(source);
-            if z > top.z || (branch_start - Vec3::new(top.x, top.y, z)).length() >= max_length {
+            if z > top.z
+                || z >= branch_start.z
+                || (branch_start - Vec3::new(top.x, top.y, z)).length() >= max_length
+            {
                 return false;
             }
             target.z = z;
+            let horizontal = ((target.x - branch_start.x).powi(2)
+                + (target.y - branch_start.y).powi(2))
+            .sqrt();
+            if horizontal > 1e-3 && (branch_start.z - target.z) / horizontal < 0.1 {
+                return false;
+            }
         }
         if target.z < 4.0 * radius {
             return false;
@@ -470,7 +495,7 @@ impl<'a> Builder<'a> {
     fn ground_escape(&mut self, head: &Tip) -> bool {
         let radius = head_radius(head);
         let normal_radius = (self.cfg.trunk_diameter * 0.5).max(0.05);
-        let max_length = (MAX_BRIDGE_LENGTH * radius / normal_radius).max(2.0);
+        let max_length = (MAX_BRIDGE_LENGTH * radius / normal_radius).max(MAX_BRIDGE_LENGTH);
         let source = head.lower_end();
         for direction in directions(head, self.cfg) {
             let mut travel = 0.0;

@@ -4432,9 +4432,9 @@ impl App {
                         egui::RichText::new("Only steep overhangs").size(12.5),
                     )
                     .on_hover_text(
-                        "Unchecked, every face that points down gets support — shallow slopes and \
-                         flat undersides included, the way HALOT Box's working profile does it. \
-                         Checked, only faces steeper than the angle above.",
+                        "Checked (the default), only faces steeper than the angle above get \
+                         support. Unchecked, every face that points down gets support — shallow \
+                         slopes and flat undersides included.",
                     )
                     .changed();
                 ui.checkbox(
@@ -8145,6 +8145,25 @@ mod tests {
             Arc::ptr_eq(&first_tree, &app.models[0].pick_tree()),
             "moving the piece must not rebuild its picking tree"
         );
+    }
+
+    /// The built-in panel values are the reference set; opening a project
+    /// or a saved configuration is the only way to start with older ones.
+    #[test]
+    fn a_fresh_window_starts_with_the_reference_support_defaults() {
+        let app = App::new(Launch::default());
+        let s = &app.settings.supports;
+        assert!((s.height_from_platform - 6.0).abs() < 1e-6);
+        assert!((s.tip.length - 2.5).abs() < 1e-6);
+        assert!((s.tip.upper_diameter - 0.50).abs() < 1e-6);
+        assert!((s.tip.lower_diameter - 0.75).abs() < 1e-6);
+        assert!((s.base.plate_thickness - 0.85).abs() < 1e-6);
+        assert!((s.base.margin - 2.5).abs() < 1e-6);
+        assert!((s.base.chamfer_deg - 15.0).abs() < 1e-6);
+        assert!((s.foot_diameter - 1.5).abs() < 1e-6);
+        assert!((s.branch_diameter - s.trunk_diameter).abs() < 1e-6);
+        assert!(s.overhangs_only);
+        assert!(!s.base.raft);
     }
 
     /// The window opens on an empty plate; the sample scene is opt-in, so a
