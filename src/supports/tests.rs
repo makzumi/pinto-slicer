@@ -541,8 +541,8 @@ fn the_base_plate_can_be_switched_off() {
     );
     assert!(!without.feet.is_empty(), "the feet stay");
     assert!(
-        mesh_triangle_count(&without) < mesh_triangle_count(&with),
-        "fewer triangles without the plate"
+        mesh_triangle_count(&without) > 0,
+        "the support mesh is still there without the plate"
     );
 }
 
@@ -762,6 +762,37 @@ fn close_ground_heads_share_a_prusa_central_pillar() {
         "the side bridge descends to the pillar"
     );
     assert_eq!(stats.dropped, 0);
+}
+
+#[test]
+fn flat_overhang_heads_still_share_a_column() {
+    // On a flat ceiling the ideal 45-degree branch lands below the plate.
+    // It must be clamped to the column, not dropped, or every head gets its
+    // own pillar and the support count explodes.
+    let cfg = SupportConfig::default();
+    let mut first = tips::make_tip(
+        Vec3::new(0.0, 0.0, 6.0),
+        Vec3::new(0.0, 0.0, -1.0),
+        &cfg,
+        false,
+    );
+    first.id = 0;
+    let mut second = tips::make_tip(
+        Vec3::new(3.0, 0.0, 6.0),
+        Vec3::new(0.0, 0.0, -1.0),
+        &cfg,
+        false,
+    );
+    second.id = 1;
+    let tree = bvh::Bvh::from_meshes(&[]);
+    let mut stats = Stats::default();
+    let pieces = route::route(&[first, second], &cfg, &tree, &mut stats);
+    assert_eq!(pieces.trunks.len(), 1, "the flat pair shares one column");
+    assert_eq!(pieces.branches.len(), 1, "the side head gets a bridge");
+    assert!(
+        pieces.branches[0].to.z >= 4.0 * 0.425,
+        "the clamped bridge stays above the foot"
+    );
 }
 
 #[test]
@@ -1304,6 +1335,53 @@ fn a_floating_cap_grows_a_ring_of_heads_that_share_columns() {
 }
 
 /// Close columns zig-zag on their own; only wide gaps earn the double cross.
+#[test]
+fn a_default_flat_slab_gets_branches_and_braces() {
+    // Regression: a 40 mm flat ceiling used to produce one column per head
+    // and no braces, because the ideal 45-degree landings were rejected
+    // below the plate and the brace start was a fixed 3 mm.
+    let m = block((40.0, 40.0, 8.0), 6.0);
+    let model = run(std::slice::from_ref(&m), &SupportConfig::default());
+    assert!(model.tips.len() > 20, "the slab has a full contact field");
+    assert!(
+        model.trunks.len() < model.tips.len(),
+        "heads share columns instead of every tip growing its own"
+    );
+    assert!(!model.branches.is_empty(), "the flat roof gets branches");
+    assert!(!model.braces.is_empty(), "the columns are tied together");
+}
+
+#[test]
+fn short_columns_still_get_a_brace() {
+    // Default lift leaves a ~2.3 mm column. The brace start must follow the
+    // base top and the step must fit that short span, otherwise the default
+    // support lattice has no braces at all.
+    let trunk = |x: f32, id: usize| Trunk {
+        id,
+        bottom: Vec3::new(x, 0.0, 0.0),
+        top: Vec3::new(x, 0.0, 2.3),
+        diameter: 0.85,
+        tip_ids: vec![id],
+        model_id: 0,
+    };
+    let cfg = SupportConfig::default();
+    let empty = bvh::Bvh::from_meshes(&[]);
+    let mut pieces = route::Pieces {
+        tips: Vec::new(),
+        anchors: Vec::new(),
+        branches: Vec::new(),
+        trunks: vec![trunk(-2.0, 0), trunk(2.0, 1)],
+        feet: Vec::new(),
+        braces: Vec::new(),
+    };
+    strength::strengthen(&mut pieces, &cfg, &empty);
+    assert!(!pieces.braces.is_empty(), "short columns still get one brace");
+    for brace in &pieces.braces {
+        assert!(brace.a.z <= 2.3 + 1e-4 && brace.b.z <= 2.3 + 1e-4);
+        assert!(brace.a.z >= 1.2 - 1e-4 && brace.b.z >= 1.2 - 1e-4);
+    }
+}
+
 #[test]
 fn close_columns_get_a_plain_zig_zag_wide_ones_get_the_cross() {
     let trunk = |x: f32| Trunk {

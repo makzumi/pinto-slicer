@@ -11,10 +11,18 @@ use crate::mesh::Vec3;
 const MAX_BRACES: usize = 4000;
 const MAX_LINK_DISTANCE: f32 = 10.0;
 const CASCADE_NEIGHBORS: usize = 4;
-/// Cross braces start this far above the plate — HALOT Box's Cross Start
-/// Height, which keeps the lattice out of the base's chamfer and the film's
-/// first peel.
-const CROSS_START_HEIGHT: f32 = 3.0;
+/// The top of the base's chamfer. Braces start here instead of at a fixed
+/// height so a short column can still be tied; a fixed 3 mm start made the
+/// default 6 mm lift produce no bracing at all.
+fn base_top(cfg: &SupportConfig) -> f32 {
+    if !cfg.base.enabled || cfg.base.plate_thickness <= 0.05 {
+        return 0.0;
+    }
+    let thickness = cfg.base.plate_thickness;
+    let angle = cfg.base.chamfer_deg.clamp(15.0, 80.0).to_radians();
+    let chamfer = (thickness * angle.tan()).min(thickness * 0.6).max(0.05);
+    thickness + chamfer / angle.tan().max(1e-4)
+}
 /// Double crosses only appear between columns this far apart. Close pairs
 /// get a plain zig-zag; giving every pair both diagonals is what made the
 /// lattice read as a wall of overlapping sticks.
@@ -87,20 +95,21 @@ fn interconnect(
     if distance < 1e-4 || radius <= 0.0 {
         return false;
     }
-    let step = distance * cfg.branch_angle_deg.to_radians().tan();
-    if step < 0.25 {
+    let top = a.top.z.min(b.top.z);
+    let bottom = a.bottom.z.max(b.bottom.z).max(base_top(cfg));
+    if top - bottom < 0.25 {
         return false;
     }
-    let bottom = (a.bottom.z.max(b.bottom.z) + cfg.base.plate_thickness).max(CROSS_START_HEIGHT);
-    let top = a.top.z.min(b.top.z);
-    if top - bottom < step {
+    let step = (distance * cfg.branch_angle_deg.to_radians().tan())
+        .min(top - bottom);
+    if step < 0.25 {
         return false;
     }
 
     let mut added = false;
     let mut z = top;
     let mut swap = false;
-    while z - step >= bottom && braces.len() < MAX_BRACES {
+    while z + 1e-4 - step >= bottom && braces.len() < MAX_BRACES {
         let (from_trunk, to_trunk) = if swap { (b, a) } else { (a, b) };
         let from = Vec3::new(from_trunk.bottom.x, from_trunk.bottom.y, z);
         let to = Vec3::new(to_trunk.bottom.x, to_trunk.bottom.y, z - step);

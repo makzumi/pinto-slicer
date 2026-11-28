@@ -410,9 +410,18 @@ impl<'a> Builder<'a> {
                 via = Some(lowered);
                 z -= zdiff;
             }
+            // A flat overhang puts the ideal 45-degree landing below the
+            // plate. Clamp it to the lowest usable point on the column
+            // instead of dropping the whole bridge: two heads over a flat
+            // ceiling should still share one pillar.
+            let floor = (bottom.z + 0.3)
+                .max(4.0 * radius + 0.05)
+                .min(top.z);
+            if z < floor {
+                z = floor;
+            }
             let branch_start = via.unwrap_or(source);
-            if z < bottom.z
-                || z > top.z
+            if z > top.z
                 || (branch_start - Vec3::new(top.x, top.y, z)).length() >= max_length
             {
                 return false;
