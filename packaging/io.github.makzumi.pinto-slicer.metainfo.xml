@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.29/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.30/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,15 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.30" date="2026-11-27">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.30</url>
+      <description>
+        <p>The orientation cube takes up less of the viewport.</p>
+        <ul>
+          <li>The navigation cube is 15% smaller, leaving more room around the model.</li>
         </ul>
       </description>
     </release>

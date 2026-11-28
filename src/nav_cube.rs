@@ -112,7 +112,8 @@ pub struct NavCube {
 impl NavCube {
     pub fn new(view: &View, viewport: Rect) -> Self {
         let centre = viewport.right_top() + Vec2::new(-78.0, 78.0);
-        let scale = 30.0;
+        // 15% smaller than the original 30 px cube.
+        let scale = 25.5;
         let camera_distance = 5.0_f32;
         let eye = -view.fwd;
         let mut faces = Vec::new();

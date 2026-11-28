@@ -4,6 +4,13 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-11-27
+
+### Changed
+
+- The orientation cube is 15% smaller, so it leaves more room for the model
+  without shrinking the viewport controls.
+
 ## [0.1.29] - 2026-11-27
 
 ### Changed
