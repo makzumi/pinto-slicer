@@ -38,9 +38,9 @@ impl Default for TipConfig {
     fn default() -> Self {
         Self {
             shape: TipShape::Cone,
-            upper_diameter: 0.65,
-            lower_diameter: 0.85,
-            length: 3.0,
+            upper_diameter: 0.50,
+            lower_diameter: 0.75,
+            length: 2.5,
             contact_shape: ContactShape::None,
             contact_diameter: 0.8,
             contact_depth: 0.4,
@@ -55,26 +55,21 @@ pub struct BaseConfig {
     pub plate_thickness: f32,
     pub margin: f32,
     pub chamfer_deg: f32,
-    /// One monolithic sheet per connected group of feet (the reference
-    /// slicer's raft-like pads) instead of splitting into many small capped
-    /// pads. The reference prints about six sheets under a whole job; the
-    /// splitter produces dozens of little pads that peel off one by one.
-    #[serde(default = "yes")]
+    /// One monolithic sheet per connected group of feet instead of splitting
+    /// into many small capped pads. Left in the file format for older
+    /// projects, but no longer exposed in the panel.
+    #[serde(default)]
     pub raft: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 impl Default for BaseConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            plate_thickness: 0.8,
-            margin: 1.0,
-            chamfer_deg: 45.0,
-            raft: true,
+            plate_thickness: 0.85,
+            margin: 2.5,
+            chamfer_deg: 15.0,
+            raft: false,
         }
     }
 }
@@ -172,9 +167,7 @@ impl Default for SupportConfig {
             // 4 mm apart, which this app calls the High density.
             touch_tip_distance: Density::High.spacing(),
             overhang_angle_deg: 45.0,
-            // HALOT Box's working default: Overhangs Only unchecked, so
-            // everything facing down is supported, not just steep overhangs.
-            overhangs_only: false,
+            overhangs_only: true,
             tip: TipConfig::default(),
             branch_angle_deg: 45.0,
             branch_diameter: 0.85,
@@ -182,7 +175,7 @@ impl Default for SupportConfig {
             // HALOT Box's columns are cones: ~2.5 mm at the foot, slimming
             // to the shaft width where the model meets it.
             trunk_diameter_max: 2.5,
-            foot_diameter: 2.5,
+            foot_diameter: 1.5,
             base: BaseConfig::default(),
             enabled: true,
         }
@@ -321,18 +314,20 @@ mod tests {
         assert_eq!(c.height_from_platform, 6.0);
         assert_eq!(c.touch_tip_distance, Density::High.spacing());
         assert_eq!(c.overhang_angle_deg, 45.0);
-        assert!(!c.overhangs_only, "the working profile leaves it unchecked");
-        assert_eq!(c.tip.upper_diameter, 0.65);
-        assert_eq!(c.tip.lower_diameter, 0.85);
-        assert_eq!(c.tip.length, 3.0);
+        assert!(c.overhangs_only, "the reference panel has it checked");
+        assert_eq!(c.tip.upper_diameter, 0.50);
+        assert_eq!(c.tip.lower_diameter, 0.75);
+        assert_eq!(c.tip.length, 2.5);
         assert_eq!(c.tip.contact_diameter, 0.8);
         assert_eq!(c.tip.contact_depth, 0.4);
         assert_eq!(c.branch_angle_deg, 45.0);
         assert_eq!(c.branch_diameter, 0.85);
         assert_eq!(c.trunk_diameter, 0.85);
-        assert_eq!(c.foot_diameter, 2.5);
-        assert_eq!(c.base.plate_thickness, 0.8);
-        assert_eq!(c.base.margin, 1.0);
+        assert_eq!(c.foot_diameter, 1.5);
+        assert_eq!(c.base.plate_thickness, 0.85);
+        assert_eq!(c.base.margin, 2.5);
+        assert_eq!(c.base.chamfer_deg, 15.0);
+        assert!(!c.base.raft);
     }
 
     #[test]
@@ -392,22 +387,21 @@ mod tests {
         let c = SupportConfig::default();
         let text = c.to_json();
         assert!(text.contains("\"touch_tip_distance\": 4"));
-        assert!(text.contains("\"plate_thickness\": 0.8"));
-        assert!(text.contains("\"raft\": true"));
+        assert!(text.contains("\"plate_thickness\": 0.85"));
+        assert!(text.contains("\"raft\": false"));
         // The serde derives exist, so any serde format can save and load it.
         fn serde_ready<T: serde::Serialize + serde::de::DeserializeOwned>() {}
         serde_ready::<SupportConfig>();
     }
 
     #[test]
-    fn an_old_project_without_the_raft_key_loads_as_raft_sheets() {
-        // Projects written before the raft switch carry no `raft` key; they
-        // must still load, and default to the new sheet behavior rather than
-        // silently turning the cap back on.
+    fn an_old_project_without_the_raft_key_loads_without_raft() {
+        // The raft switch is gone from the panel; older projects must still
+        // load, and the default is now the split-pad base.
         let base: BaseConfig = serde_json::from_str(
             "{\"enabled\": true, \"plate_thickness\": 0.8, \"margin\": 1.0, \"chamfer_deg\": 45.0}",
         )
         .expect("a pre-raft base loads");
-        assert!(base.raft, "a missing raft key means raft sheets on");
+        assert!(!base.raft, "a missing raft key means split pads");
     }
 }

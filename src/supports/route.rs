@@ -414,16 +414,12 @@ impl<'a> Builder<'a> {
             // plate. Clamp it to the lowest usable point on the column
             // instead of dropping the whole bridge: two heads over a flat
             // ceiling should still share one pillar.
-            let floor = (bottom.z + 0.3)
-                .max(4.0 * radius + 0.05)
-                .min(top.z);
+            let floor = (bottom.z + 0.3).max(4.0 * radius + 0.05).min(top.z);
             if z < floor {
                 z = floor;
             }
             let branch_start = via.unwrap_or(source);
-            if z > top.z
-                || (branch_start - Vec3::new(top.x, top.y, z)).length() >= max_length
-            {
+            if z > top.z || (branch_start - Vec3::new(top.x, top.y, z)).length() >= max_length {
                 return false;
             }
             target.z = z;

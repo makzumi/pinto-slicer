@@ -218,10 +218,7 @@ impl SupportModel {
             // model. No foot flare and no taper: the base pad is the only
             // place that gets wider.
             let r = t.diameter * 0.5;
-            meshgen::append(
-                &mut m,
-                &meshgen::frustum(t.bottom, r, t.top, r, sides),
-            );
+            meshgen::append(&mut m, &meshgen::frustum(t.bottom, r, t.top, r, sides));
         }
         for f in &self.feet {
             meshgen::append(&mut m, &meshgen::foot(f));

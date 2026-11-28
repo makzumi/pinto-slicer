@@ -100,8 +100,7 @@ fn interconnect(
     if top - bottom < 0.25 {
         return false;
     }
-    let step = (distance * cfg.branch_angle_deg.to_radians().tan())
-        .min(top - bottom);
+    let step = (distance * cfg.branch_angle_deg.to_radians().tan()).min(top - bottom);
     if step < 0.25 {
         return false;
     }

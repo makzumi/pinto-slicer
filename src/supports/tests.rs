@@ -790,7 +790,7 @@ fn flat_overhang_heads_still_share_a_column() {
     assert_eq!(pieces.trunks.len(), 1, "the flat pair shares one column");
     assert_eq!(pieces.branches.len(), 1, "the side head gets a bridge");
     assert!(
-        pieces.branches[0].to.z >= 4.0 * 0.425,
+        pieces.branches[0].to.z >= 4.0 * cfg.tip.lower_diameter * 0.5,
         "the clamped bridge stays above the foot"
     );
 }
@@ -1227,7 +1227,10 @@ fn a_wall_that_barely_faces_down_gets_support_unless_overhangs_only() {
     // vertical, far shallower than the 45° setting would ever flag. HALOT
     // Box's working profile (Overhangs Only unchecked) still gives it a
     // field of tips; the checked box leaves it bare.
-    let cfg = SupportConfig::default();
+    let cfg = SupportConfig {
+        overhangs_only: false,
+        ..SupportConfig::default()
+    };
     let wall = block((60.0, 20.0, 6.0), 0.0);
     let (lo, hi) = wall.bounds();
     let centre = (lo + hi) * 0.5;
@@ -1375,7 +1378,10 @@ fn short_columns_still_get_a_brace() {
         braces: Vec::new(),
     };
     strength::strengthen(&mut pieces, &cfg, &empty);
-    assert!(!pieces.braces.is_empty(), "short columns still get one brace");
+    assert!(
+        !pieces.braces.is_empty(),
+        "short columns still get one brace"
+    );
     for brace in &pieces.braces {
         assert!(brace.a.z <= 2.3 + 1e-4 && brace.b.z <= 2.3 + 1e-4);
         assert!(brace.a.z >= 1.2 - 1e-4 && brace.b.z >= 1.2 - 1e-4);
@@ -1460,7 +1466,10 @@ fn a_dense_ring_of_feet_keeps_its_pads_apart() {
         trunk_id: id,
         model_id: 0,
     };
-    let cfg = crate::supports::config::BaseConfig::default();
+    let cfg = crate::supports::config::BaseConfig {
+        margin: 1.0,
+        ..crate::supports::config::BaseConfig::default()
+    };
     let dense: Vec<Foot> = (0..8).map(|i| foot(i, i as f32 * 4.0)).collect();
     let plates = base::plates_for(&dense, &cfg);
     assert_eq!(
@@ -1575,7 +1584,10 @@ fn raft_mode_welds_a_forest_into_one_sheet() {
         trunk_id: id,
         model_id: 0,
     };
-    let cfg = crate::supports::config::BaseConfig::default();
+    let cfg = crate::supports::config::BaseConfig {
+        raft: true,
+        ..crate::supports::config::BaseConfig::default()
+    };
     let mut feet = Vec::new();
     for gy in 0..10usize {
         for gx in 0..25usize {
