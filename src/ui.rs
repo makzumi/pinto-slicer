@@ -1838,10 +1838,14 @@ impl App {
 
     /// Point the panels at a row: with changes up, ask first.
     fn switch_config(&mut self, target: Option<String>) {
-        if target == self.config_active {
+        // Clicking the row the panels already answer to is only a no-op when
+        // they actually hold that row's values. On an old project the panels
+        // answer to Default but still hold the project's saved numbers, so
+        // the click must ask before replacing them.
+        let diffs = self.config_diffs();
+        if target == self.config_active && diffs.is_empty() {
             return;
         }
-        let diffs = self.config_diffs();
         if diffs.is_empty() {
             self.apply_config(target);
         } else {
@@ -7501,6 +7505,42 @@ mod tests {
         assert!(app.presets.find("Fast print").is_none());
         assert_eq!(app.config_active, None, "removing the active row frees it");
         let _ = std::fs::remove_file(&store);
+    }
+
+    #[test]
+    fn clicking_default_on_an_old_project_asks_before_reloading() {
+        let mut app = app_with_a_piece();
+        // An opened project restores its own settings but has no active
+        // configuration row. Clicking Default must therefore compare the
+        // project values with the built-in defaults and ask first.
+        app.settings.supports.tip.length = 3.0;
+        app.settings.supports.tip.upper_diameter = 0.6;
+        app.settings.supports.branch_diameter = 0.9;
+        assert_eq!(app.config_active, None);
+        app.switch_config(None);
+        match &app.config_prompt {
+            Some(ConfigPrompt::Switch { target, diffs }) => {
+                assert!(target.is_none(), "the target was Default");
+                assert!(
+                    diffs.iter().any(|line| line.starts_with("Tip length")),
+                    "{diffs:?}"
+                );
+                assert!(
+                    diffs.iter().any(|line| line.starts_with("Branch Ø")),
+                    "{diffs:?}"
+                );
+            }
+            _ => panic!("Default on an old project should ask first"),
+        }
+        // Discard applies the built-in defaults and settles the row.
+        app.apply_config(None);
+        assert!(app.config_prompt.is_none());
+        assert!((app.settings.supports.tip.length - 2.5).abs() < 1e-4);
+        assert!((app.settings.supports.tip.upper_diameter - 0.50).abs() < 1e-4);
+        assert_eq!(app.config_active, None);
+        // A second click with nothing to change stays silent.
+        app.switch_config(None);
+        assert!(app.config_prompt.is_none());
     }
 
     #[test]
