@@ -152,10 +152,7 @@ impl NavCube {
         // in the viewport — with a fixed offset, so it never drifts while
         // the cube rotates.
         let home_size = 26.0_f32;
-        let home = Rect::from_center_size(
-            centre + Vec2::new(-48.0, -48.0),
-            Vec2::splat(home_size),
-        );
+        let home = Rect::from_center_size(centre + Vec2::new(-48.0, -48.0), Vec2::splat(home_size));
         Self {
             centre,
             faces,

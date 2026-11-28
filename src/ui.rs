@@ -6461,12 +6461,7 @@ fn paint_projection_icon(
         // toward the vanishing point, so the connecting edges converge.
         let front = c + egui::vec2(-3.0, 3.0);
         let t = 0.35;
-        (
-            front,
-            c + (front - c) * t,
-            6.5,
-            6.5 * t,
-        )
+        (front, c + (front - c) * t, 6.5, 6.5 * t)
     };
     let face = |center: egui::Pos2, half: f32| -> [egui::Pos2; 4] {
         [
@@ -6479,14 +6474,7 @@ fn paint_projection_icon(
     let back = face(back_center, back_half);
     let front = face(front_center, front_half);
     // Connectors first, then the back face, then the front face on top.
-    let edges = |f: &[egui::Pos2; 4]| {
-        [
-            [f[0], f[1]],
-            [f[1], f[2]],
-            [f[2], f[3]],
-            [f[3], f[0]],
-        ]
-    };
+    let edges = |f: &[egui::Pos2; 4]| [[f[0], f[1]], [f[1], f[2]], [f[2], f[3]], [f[3], f[0]]];
     for i in 0..4 {
         painter.line_segment([front[i], back[i]], stroke);
     }

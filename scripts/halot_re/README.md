@@ -97,26 +97,19 @@ printer's Y mirror afterwards; the area projection uses the same flag
 (`printer.mirror[1]`, false on HALOT-X1).  An offset block at negative model Y
 must land on the low image rows, not the mirrored front rows.
 
-As a calibration check, a synthetic support wall matching the layer-529 fan
-covers all 178 stored beads (202 total, Jaccard 0.881).  The extra 24 are
-boundary cells from the smooth synthetic edge, not a transform error.  The
-same check is a Rust regression test:
-`synthetic_support_fan_covers_the_reference_l529_mask`.
+The area projection was an experiment, not the shipped writer path.  A
+synthetic support wall matching the layer-529 fan covered all 178 stored beads
+(202 total, Jaccard 0.881), but exact parity still needed HALOT's support mesh
+and `SepFilter` radius/mode.  The Rust port and the `SliceResult.area_meshes`
+plumbing were removed; the writer now uses the slice image directly:
 
-The script uses the exact dumped LUT; the remaining unknowns are HALOT's
-support mesh and the exact `SepFilter` radius/mode.
+    every lit pixel's bead is enabled; extra beads are harmless because the
+    LCD blocks the light where the image is black.
 
-Exact parity with a HALOT job therefore requires the same support geometry
-that HALOT Box used.  For a Pinto Slicer job the mask must be computed from
-Pinto's own model + support mesh; that is the intended writer path.
+This keeps the zone mask correct for Pinto Slicer's own slices and supports
+without copying HALOT's support geometry.  Support/base-raft parity is pinned
+for later.
 
-The Rust port lives in `src/halot_x1_area.rs`: `compute_halot_x1_area_mask`
-clips each triangle to the layer, rasterises the projection into the 64 x 6230
-LUT-cell grid, and ORs the cells' beads.  It has unit tests for empty meshes,
-blocks above/below the layer, a support above the layer, and the synthetic
-layer-529 fan.  It is wired into `write_v4`: `SliceResult.area_meshes` carries
-the source meshes, and the writer uses the area projection when they are
-present.  The CPU projection
-has not been benchmarked on production meshes yet.  The exact dumped LUT is
-embedded as the 29 KB `assets/halot_x1_lut.z`; regenerate it with
-`scripts/halot_re/gen_lut_asset.py` when a new dump is available.
+The exact dumped LUT is embedded as the 29 KB `assets/halot_x1_lut.z`;
+regenerate it with `scripts/halot_re/gen_lut_asset.py` when a new dump is
+available.

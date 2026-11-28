@@ -3,9 +3,9 @@
 
 pub const HALOT_X1_COLS: usize = 15120;
 pub const HALOT_X1_ROWS: usize = 6230;
-pub const HALOT_X1_EBP: usize = 64;       // grid column bands
-pub const HALOT_X1_EDI: usize = 237;      // pixels per band (ceil(COLS/EBP))
-pub const HALOT_X1_MAX_BIT: usize = 542;  // bits 0..541 (542 beads)
+pub const HALOT_X1_EBP: usize = 64; // grid column bands
+pub const HALOT_X1_EDI: usize = 237; // pixels per band (ceil(COLS/EBP))
+pub const HALOT_X1_MAX_BIT: usize = 542; // bits 0..541 (542 beads)
 pub const HALOT_X1_MASK_BYTES: usize = 68; // (544+7)/8
 
 // Hexagon geometry (pixel space, from getLampMask ord 339 + beaddata ord 355)
@@ -99,7 +99,13 @@ fn build_geometric_lut() -> (Vec<u32>, Vec<u32>) {
         let x_start = if r % 2 == 0 { 0.0 } else { ODD_OFFSET };
         for c in 0..n_cols {
             let cx = x_start + c as f32 * COL_PITCH;
-            beads.push(BeadInfo { idx, cx, cy, y_min, y_max });
+            beads.push(BeadInfo {
+                idx,
+                cx,
+                cy,
+                y_min,
+                y_max,
+            });
             idx += 1;
         }
     }
@@ -207,7 +213,11 @@ fn subzone_halot_x1(
     let end_x = (end - 1) % HALOT_X1_COLS;
 
     while row < HALOT_X1_ROWS {
-        let x2 = if row == end_row { end_x } else { HALOT_X1_COLS - 1 };
+        let x2 = if row == end_row {
+            end_x
+        } else {
+            HALOT_X1_COLS - 1
+        };
         func_mask_halot_x1(row, x, x2, mask, range, bits);
         let nxt = (row + 1) * HALOT_X1_COLS;
         if nxt <= start || nxt >= end {
@@ -272,7 +282,11 @@ mod tests {
         let mask = compute_halot_x1_mask(&buf, &range, &bits);
         let count: u32 = mask.iter().map(|b| b.count_ones()).sum();
         // The exact dumped HALOT LUT activates 522 of the 542 bead indices.
-        assert_eq!(count, 522, "fully lit should hit 522 beads with the exact LUT, got {}", count);
+        assert_eq!(
+            count, 522,
+            "fully lit should hit 522 beads with the exact LUT, got {}",
+            count
+        );
     }
 
     #[test]
@@ -305,6 +319,10 @@ mod tests {
         let mask = compute_halot_x1_mask(&buf, &range, &bits);
         let count: u32 = mask.iter().map(|b| b.count_ones()).sum();
         // Should light a small number of beads (the ones covering that pixel)
-        assert!(count > 0 && count < 10, "single pixel should light few beads, got {}", count);
+        assert!(
+            count > 0 && count < 10,
+            "single pixel should light few beads, got {}",
+            count
+        );
     }
 }

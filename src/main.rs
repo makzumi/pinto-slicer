@@ -6,11 +6,9 @@ mod dialog;
 mod export;
 mod formats;
 mod gizmo;
-#[allow(dead_code)]
-mod halot_x1_area;
+mod gpu_render;
 #[path = "halot_x1_mask.rs"]
 mod halot_x1_mask;
-mod gpu_render;
 mod icons;
 mod input;
 mod inspect;
