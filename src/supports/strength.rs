@@ -17,10 +17,7 @@ const CASCADE_NEIGHBORS: usize = 4;
 /// Starting at a fixed 3 mm made short columns brace-free; starting at the
 /// plate top put the end ball through the pad.
 fn brace_floor(cfg: &SupportConfig, radius: f32) -> f32 {
-    let surface = cfg
-        .base
-        .surface_height()
-        .max(meshgen::FOOT_HEIGHT);
+    let surface = cfg.base.surface_height().max(meshgen::FOOT_HEIGHT);
     surface + radius + 0.02
 }
 /// Double crosses only appear between columns this far apart. Close pairs
@@ -134,11 +131,7 @@ fn interconnect(
             let reverse_to = Vec3::new(from_trunk.bottom.x, from_trunk.bottom.y, z - step);
             // The two legs of a cross meet by design, so the forward leg just
             // pushed is excused; anything else still needs its daylight.
-            let excuse = if added {
-                Some(braces.len() - 1)
-            } else {
-                None
-            };
+            let excuse = if added { Some(braces.len() - 1) } else { None };
             if tree.segment_clear(reverse_from, reverse_to, radius)
                 && clear_of_columns(reverse_from, reverse_to, radius, a, b, trunks)
                 && clear_of_braces(reverse_from, reverse_to, radius, braces, excuse)

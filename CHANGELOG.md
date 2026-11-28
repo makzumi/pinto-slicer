@@ -4,6 +4,27 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.31] - 2026-11-28
+
+### Changed
+
+- Support settings now start from the reference panel values: 6 mm lift,
+  0.50/0.75 mm tips at 2.5 mm, 0.85 mm columns, 0.85 mm base with a 2.5 mm
+  margin, 15° lip, and 1.5 mm feet.
+- Support columns keep one thickness from the base to the model instead of
+  tapering; the raft-sheet option was removed so every base splits into
+  capped pads.
+- Clicking **Default** on a project with older settings now compares the
+  panels with the built-in defaults and asks before replacing them.
+
+### Fixed
+
+- Short columns get braces, thick bases no longer bury the branch or lose
+  their braces, and supports with the base off stay above the platform.
+- Flat overhangs no longer create ascending bridges or start a branch inside
+  the base.
+- Zero-margin pads no longer invert their inner lip.
+
 ## [0.1.30] - 2026-11-27
 
 ### Changed

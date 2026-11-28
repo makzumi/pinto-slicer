@@ -39,7 +39,7 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.30/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.31/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
@@ -53,6 +53,18 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.31" date="2026-11-28">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.31</url>
+      <description>
+        <p>Support generation now starts from the reference panel values and keeps one column thickness from the base to the model.</p>
+        <ul>
+          <li>New support defaults: 6 mm lift, 0.50/0.75 mm tips, 0.85 mm columns, 0.85 mm base with a 2.5 mm margin, 15° lip, and 1.5 mm feet.</li>
+          <li>Columns no longer taper; the raft-sheet option was removed so bases split into capped pads.</li>
+          <li>Short columns get braces, thick bases keep their braces and clear branches, and base-off supports stay above the platform.</li>
+          <li>Clicking Default on a project with older settings asks before replacing them.</li>
         </ul>
       </description>
     </release>

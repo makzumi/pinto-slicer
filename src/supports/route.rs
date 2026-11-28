@@ -418,12 +418,7 @@ impl<'a> Builder<'a> {
             // the pad's dropped centre (or the bare foot) plus the branch
             // ball, not just the platform.
             let base_clear = if bottom.z < 0.5 {
-                self.cfg
-                    .base
-                    .surface_height()
-                    .max(meshgen::FOOT_HEIGHT)
-                    + radius
-                    + 0.02
+                self.cfg.base.surface_height().max(meshgen::FOOT_HEIGHT) + radius + 0.02
             } else {
                 0.0
             };
@@ -442,9 +437,8 @@ impl<'a> Builder<'a> {
                 return false;
             }
             target.z = z;
-            let horizontal = ((target.x - branch_start.x).powi(2)
-                + (target.y - branch_start.y).powi(2))
-            .sqrt();
+            let horizontal =
+                ((target.x - branch_start.x).powi(2) + (target.y - branch_start.y).powi(2)).sqrt();
             if horizontal > 1e-3 && (branch_start.z - target.z) / horizontal < 0.1 {
                 return false;
             }
