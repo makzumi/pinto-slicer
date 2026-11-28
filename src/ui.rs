@@ -5277,19 +5277,43 @@ impl App {
                         )
                         .on_hover_text(hint);
                     let painter = ui.painter_at(chip);
+                    // Two joined tabs rather than detached pills: the outer
+                    // corners stay rounded, the seam between them is square.
+                    let rounding = if orthographic {
+                        egui::Rounding {
+                            nw: 0.0,
+                            ne: 5.0,
+                            sw: 0.0,
+                            se: 5.0,
+                        }
+                    } else {
+                        egui::Rounding {
+                            nw: 5.0,
+                            ne: 0.0,
+                            sw: 5.0,
+                            se: 0.0,
+                        }
+                    };
                     painter.rect_filled(
                         chip,
-                        egui::Rounding::same(8.0),
+                        rounding,
                         if on {
                             ACCENT_BG
+                        } else if response.hovered() {
+                            HOVER
                         } else {
                             egui::Color32::from_black_alpha(120)
                         },
                     );
-                    paint_projection_icon(
-                        &painter,
-                        chip,
-                        orthographic,
+                    painter.text(
+                        chip.center(),
+                        egui::Align2::CENTER_CENTER,
+                        if orthographic {
+                            "Orthographic"
+                        } else {
+                            "Perspective"
+                        },
+                        egui::FontId::proportional(11.0),
                         if on { egui::Color32::WHITE } else { MUTED },
                     );
                     if response.hovered() {
@@ -6424,66 +6448,18 @@ fn step_button(ui: &mut egui::Ui, selected: bool, step: Tab) -> bool {
 /// setting it stands for. Kept as plain geometry so the pointer can be
 /// measured against them before the picture is even drawn.
 fn lens_chips(rect: egui::Rect) -> [(egui::Rect, bool); 2] {
-    let size = egui::vec2(26.0, 26.0);
+    // Small text tabs: 11 pt labels in a 22 pt-high segmented control.  The
+    // two widths are fixed so the pointer hit-test can run before layout.
+    let perspective = egui::vec2(86.0, 22.0);
+    let orthographic = egui::vec2(96.0, 22.0);
     let at = rect.left_top() + egui::vec2(12.0, 12.0);
     [
-        (egui::Rect::from_min_size(at, size), false),
+        (egui::Rect::from_min_size(at, perspective), false),
         (
-            egui::Rect::from_min_size(at + egui::vec2(size.x + 4.0, 0.0), size),
+            egui::Rect::from_min_size(at + egui::vec2(perspective.x, 0.0), orthographic),
             true,
         ),
     ]
-}
-
-/// One lens chip: a quiet pill that carries a hand-drawn cube instead of a
-/// word. The perspective cube's back face shrinks toward a vanishing point;
-/// the orthographic one keeps its edges parallel. The geometry is tiny, so
-/// it is painted directly rather than joining the icon font.
-fn paint_projection_icon(
-    painter: &egui::Painter,
-    chip: egui::Rect,
-    ortho: bool,
-    colour: egui::Color32,
-) {
-    let c = chip.center();
-    let stroke = egui::Stroke::new(1.4_f32, colour);
-    let (front_center, back_center, front_half, back_half) = if ortho {
-        // Cabinet projection: both faces the same size, back shifted
-        // diagonally, so every connecting edge stays parallel.
-        (
-            c + egui::vec2(-2.5, 2.5),
-            c + egui::vec2(3.0, -3.0),
-            6.0,
-            6.0,
-        )
-    } else {
-        // One-point perspective: the back face is the front face scaled
-        // toward the vanishing point, so the connecting edges converge.
-        let front = c + egui::vec2(-3.0, 3.0);
-        let t = 0.35;
-        (front, c + (front - c) * t, 6.5, 6.5 * t)
-    };
-    let face = |center: egui::Pos2, half: f32| -> [egui::Pos2; 4] {
-        [
-            center + egui::vec2(-half, -half),
-            center + egui::vec2(half, -half),
-            center + egui::vec2(half, half),
-            center + egui::vec2(-half, half),
-        ]
-    };
-    let back = face(back_center, back_half);
-    let front = face(front_center, front_half);
-    // Connectors first, then the back face, then the front face on top.
-    let edges = |f: &[egui::Pos2; 4]| [[f[0], f[1]], [f[1], f[2]], [f[2], f[3]], [f[3], f[0]]];
-    for i in 0..4 {
-        painter.line_segment([front[i], back[i]], stroke);
-    }
-    for edge in edges(&back) {
-        painter.line_segment(edge, stroke);
-    }
-    for edge in edges(&front) {
-        painter.line_segment(edge, stroke);
-    }
 }
 
 /// Which parameter card a support preview belongs to.

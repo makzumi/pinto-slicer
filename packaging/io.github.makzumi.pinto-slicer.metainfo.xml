@@ -39,23 +39,12 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.27/docs/pinto-slicer-preview.png</image>
+      <image>https://raw.githubusercontent.com/makzumi/pinto-slicer/v0.1.29/docs/pinto-slicer-preview.png</image>
       <caption>Automatic support generation on the build plate</caption>
     </screenshot>
   </screenshots>
 
   <releases>
-    <release version="0.1.28" date="2026-11-27">
-      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.28</url>
-      <description>
-        <p>The backlight now follows each layer's real footprint, and the viewport's corner controls are quieter.</p>
-        <ul>
-          <li>HALOT-X1 job files light only the LED zones each slice covers, computed from the printer's own honeycomb geometry.</li>
-          <li>Support tips stop short of piercing thin walls.</li>
-          <li>The orientation cube's home button and the Persp/Ortho chips are clean icons instead of labelled boxes.</li>
-        </ul>
-      </description>
-    </release>
     <release version="1.0.2" date="2026-11-16">
       <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v1.0.2</url>
       <description>
@@ -64,6 +53,28 @@
           <li>Interactive model preparation and automatic support generation</li>
           <li>Layer preview, project files, and native printer-job export</li>
           <li>Linux AppImage and Flatpak, universal macOS DMG, and portable Windows ZIP</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.29" date="2026-11-27">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.29</url>
+      <description>
+        <p>The backlight now follows the real zone map, and the projection switch is easier to read.</p>
+        <ul>
+          <li>HALOT-X1 job files use the printer's exact 522-zone subzone map and enable every zone that covers a lit pixel.</li>
+          <li>The support-area projection experiment was removed; the slice image drives the backlight mask.</li>
+          <li>The viewport projection switch is a small Perspective | Orthographic tab pair instead of icons.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.28" date="2026-11-27">
+      <url type="details">https://github.com/makzumi/pinto-slicer/releases/tag/v0.1.28</url>
+      <description>
+        <p>The backlight now follows each layer's real footprint, and the viewport's corner controls are quieter.</p>
+        <ul>
+          <li>HALOT-X1 job files light only the LED zones each slice covers, computed from the printer's own honeycomb geometry.</li>
+          <li>Support tips stop short of piercing thin walls.</li>
+          <li>The orientation cube's home button and the Persp/Ortho chips are clean icons instead of labelled boxes.</li>
         </ul>
       </description>
     </release>

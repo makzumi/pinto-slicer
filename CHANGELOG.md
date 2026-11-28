@@ -4,6 +4,19 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
 
 ## [Unreleased]
 
+## [0.1.29] - 2026-11-27
+
+### Changed
+
+- HALOT-X1 job files now use the printer's recovered 522-zone subzone LUT and
+  enable every zone that covers a lit pixel.  This replaces the approximate
+  honeycomb geometry, so edge zones and thin features get the backlight they
+  need.
+- The experimental support-area projection path was removed; the layer image
+  is the source of truth for the backlight mask.
+- The viewport projection switch is a compact pair of text tabs
+  (`Perspective | Orthographic`) instead of icon glyphs.
+
 ## [0.1.28] - 2026-11-27
 
 ### Changed
@@ -12,8 +25,8 @@ All notable changes to Pinto Slicer are documented here. Versions follow [Semant
   layer lights only the LED zones its slice actually covers, instead of
   lighting every zone. The 544-bit mask is derived from the same honeycomb
   geometry and run-marking algorithm the printer's own slicer uses,
-  recovered by disassembling `cxdlp.dll`; research tools and notes live in
-  `scripts/halot_re/` and `docs/zone-mask-and-support-parity-handoff.md`.
+  recovered by disassembling `cxdlp.dll`; research tools live in
+  `scripts/halot_re/`.
 - The home button on the orientation cube is a bare house glyph that rides
   the cube's corner, without its own background box.
 - The Persp/Ortho lens chips are icon buttons now: a converging cube for

@@ -39,3 +39,7 @@ Thumbs.db
 !.env.example
 
 # Cargo.lock is intentionally kept: this is an application, not a library.
+
+# Local agent notes, handoff summaries, and UV hardware test files
+/docs/
+/uvtests/

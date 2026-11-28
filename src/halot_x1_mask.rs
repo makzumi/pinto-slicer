@@ -69,8 +69,10 @@ fn build_exact_lut() -> Option<(Vec<u32>, Vec<u32>)> {
         return None;
     }
     let bits = ids
-        .chunks_exact(2)
-        .map(|p| u16::from_le_bytes([p[0], p[1]]) as u32)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| u16::from_le_bytes(*p) as u32)
         .collect();
     Some((range, bits))
 }
@@ -167,7 +169,7 @@ pub fn compute_halot_x1_mask(buf: &[u8], range: &[u32], bits: &[u32]) -> [u8; HA
 
         // Pairs: lit if either pixel non-zero (matches encoder: cmpb $0,(%r8); cmova)
         let mut pair_lit = [false; HALOT_X1_COLS / 2];
-        for (i, pair) in rowpix.chunks_exact(2).enumerate() {
+        for (i, pair) in rowpix.as_chunks::<2>().0.iter().enumerate() {
             pair_lit[i] = pair[0] != 0 || pair[1] != 0;
         }
 

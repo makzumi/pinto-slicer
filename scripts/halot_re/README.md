@@ -55,8 +55,7 @@ the encoder; the extra bits come from the caller pre-filling the output vector
 with an "area part" (or from a different input image). Exact parity therefore
 requires reproducing HALOT BOX's area-part generation, not just the bead LUT.
 
-What the disassembly established (see also
-`docs/zone-mask-and-support-parity-handoff.md`):
+What the disassembly established:
 
 - The mask's bit index equals the bead index, MSB-first within each byte
   (`bit b → byte b/8, position 7-(b%8)`), 542 beads over 68 bytes.
